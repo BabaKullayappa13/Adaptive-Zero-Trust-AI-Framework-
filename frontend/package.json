@@ -1,0 +1,32 @@
+{
+  "name": "zero-trust-ai-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "next": "^14.0.0",
+    "axios": "^1.6.2",
+    "swr": "^2.2.4",
+    "zustand": "^4.4.1",
+    "recharts": "^2.10.3",
+    "date-fns": "^2.30.0",
+    "lucide-react": "^0.294.0",
+    "tailwindcss": "^3.3.6",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@types/node": "^20.10.5",
+    "@types/next": "^9.0.0"
+  }
+}
