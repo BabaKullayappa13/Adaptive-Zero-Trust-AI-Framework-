@@ -16,6 +16,7 @@ from functools import lru_cache
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import psycopg
 from psycopg import AsyncConnection
 import jwt
@@ -34,10 +35,14 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required")
 
-SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is required")
 ALGORITHM = "HS256"
-TOKEN_EXPIRE_MINUTES = 60
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
+security = HTTPBearer(auto_error=False)
 
 # Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -55,11 +60,20 @@ app = FastAPI(
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
 
 # ============================================================================
 # DATABASE UTILITIES
@@ -158,18 +172,38 @@ def create_refresh_token(user_id: str) -> str:
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def verify_token(token: str) -> Optional[str]:
-    """Verify and decode JWT token, return user_id"""
+def verify_token(token: str, expected_type: str = "access") -> Optional[str]:
+    """Verify a typed JWT and return its subject."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
-        if user_id is None:
+        if user_id is None or payload.get("type") != expected_type:
             return None
         return user_id
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
         return None
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    conn: AsyncConnection = Depends(get_db_connection),
+) -> str:
+    """Authenticate requests and ensure the user still exists."""
+    if not credentials or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user_id = verify_token(credentials.credentials)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+    result = await conn.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    if not await result.fetchone():
+        raise HTTPException(status_code=401, detail="User not found")
+    return user_id
+
+
+def ensure_owner(requested_user_id: str, current_user_id: str) -> None:
+    if requested_user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
 # ============================================================================
 # ML/AI MODELS FOR RISK DETECTION
@@ -358,12 +392,28 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
+# ENDPOINT: CURRENT USER
+# ============================================================================
+
+@app.get("/api/auth/me", response_model=UserResponse)
+async def current_user(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    result = await conn.execute(
+        "SELECT id, email, mfa_enabled, created_at FROM users WHERE id = %s",
+        (user_id,),
+    )
+    user = await result.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserResponse(id=str(user[0]), email=user[1], mfa_enabled=bool(user[2]), created_at=user[3].isoformat())
+
+# ============================================================================
 # ENDPOINT: MFA SETUP
 # ============================================================================
 
 @app.post("/api/auth/mfa/setup")
-async def setup_mfa(user_id: str, conn: AsyncConnection = Depends(get_db_connection)):
-    """Generate MFA secret for user"""
+async def setup_mfa(user_id: str, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Generate MFA secret for the authenticated user."""
+    ensure_owner(user_id, current_user_id)
     try:
         # Verify user exists
         result = await conn.execute("SELECT id FROM users WHERE id = %s", (user_id,))
@@ -389,8 +439,9 @@ async def setup_mfa(user_id: str, conn: AsyncConnection = Depends(get_db_connect
 # ============================================================================
 
 @app.post("/api/auth/mfa/verify")
-async def verify_mfa(mfa_verify: MFAVerify, conn: AsyncConnection = Depends(get_db_connection)):
-    """Verify TOTP code and enable MFA"""
+async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Verify TOTP code and enable MFA."""
+    ensure_owner(mfa_verify.user_id, current_user_id)
     try:
         # Get user's MFA secret (from request body for now, would come from session in production)
         secret = mfa_verify.totp_code  # This is simplified; in production, store secret in session
@@ -423,8 +474,9 @@ async def verify_mfa(mfa_verify: MFAVerify, conn: AsyncConnection = Depends(get_
 # ============================================================================
 
 @app.get("/api/trust/score/{user_id}", response_model=TrustScoreResponse)
-async def get_trust_score(user_id: str, conn: AsyncConnection = Depends(get_db_connection)):
-    """Calculate and return current trust score for user"""
+async def get_trust_score(user_id: str, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Calculate and return current trust score for user."""
+    ensure_owner(user_id, current_user_id)
     try:
         # Get user's behavioral data
         result = await conn.execute(
@@ -481,9 +533,11 @@ async def get_trust_score(user_id: str, conn: AsyncConnection = Depends(get_db_c
 async def detect_risk(
     user_id: str,
     session_data: Dict[str, Any],
-    conn: AsyncConnection = Depends(get_db_connection)
+    conn: AsyncConnection = Depends(get_db_connection),
+    current_user_id: str = Depends(get_current_user),
 ):
-    """Detect anomalies and risk in current session"""
+    """Detect anomalies and risk in current session."""
+    ensure_owner(user_id, current_user_id)
     try:
         # Prepare behavioral features
         features = np.array([[
@@ -562,8 +616,10 @@ async def detect_risk(
 # ============================================================================
 
 @app.get("/api/audit/logs/{user_id}")
-async def get_audit_logs(user_id: str, limit: int = 50, conn: AsyncConnection = Depends(get_db_connection)):
-    """Get audit logs for user"""
+async def get_audit_logs(user_id: str, limit: int = 50, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Get audit logs for the authenticated user."""
+    ensure_owner(user_id, current_user_id)
+    limit = max(1, min(limit, 100))
     try:
         result = await conn.execute(
             """
@@ -593,6 +649,38 @@ async def get_audit_logs(user_id: str, limit: int = 50, conn: AsyncConnection = 
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# DASHBOARD SUMMARY AND SIMULATION STATUS
+# ============================================================================
+
+@app.get("/api/dashboard/summary")
+async def dashboard_summary(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Return persisted telemetry plus explicitly labeled simulation status."""
+    score_result = await conn.execute(
+        "SELECT score, factors, created_at FROM trust_scores WHERE user_id = %s ORDER BY created_at DESC LIMIT 12",
+        (user_id,),
+    )
+    scores = await score_result.fetchall()
+    risk_result = await conn.execute(
+        "SELECT risk_level, risk_score, created_at FROM risk_events WHERE user_id = %s ORDER BY created_at DESC LIMIT 10",
+        (user_id,),
+    )
+    risks = await risk_result.fetchall()
+    return {
+        "trust_history": [{"score": float(row[0]), "factors": row[1], "created_at": row[2].isoformat()} for row in scores],
+        "risk_timeline": [{"risk_level": row[0], "risk_score": float(row[1]), "created_at": row[2].isoformat()} for row in risks],
+        "active_sessions": 1,
+        "blocked_sessions": 0,
+        "policy_violations": 0,
+        "cloud": {"mode": "hybrid", "simulation": True, "processed_by": {"authentication": "private-cloud", "risk_analysis": "hybrid", "aggregation": "private-cloud"}},
+        "federated_learning": {"round": 3, "model_version": "fedavg-sim-v1", "participating_clients": 3, "simulation": True, "raw_data_shared": False},
+        "models": [
+            {"name": "Isolation Forest", "version": "iforest-v1", "status": "active", "metrics_available": False},
+            {"name": "Random Forest", "version": "rf-adapter-v1", "status": "adapter", "metrics_available": False},
+            {"name": "TensorFlow neural network", "version": "tensorflow-adapter-v1", "status": "optional", "metrics_available": False},
+        ],
+    }
 
 # ============================================================================
 # STARTUP & SHUTDOWN

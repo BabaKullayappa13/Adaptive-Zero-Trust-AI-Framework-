@@ -32,6 +32,14 @@ class APIClient {
     return this.client.post('/auth/login', { email, password })
   }
 
+  async getCurrentUser() {
+    return this.client.get('/auth/me')
+  }
+
+  async getDashboardSummary() {
+    return this.client.get('/dashboard/summary')
+  }
+
   async setupMFA(userId: string) {
     return this.client.post('/auth/mfa/setup', { user_id: userId })
   }
