@@ -66,22 +66,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const response = await apiClient.login(email, password)
       const { access_token, refresh_token } = response.data
-      set({
-        accessToken: access_token,
-        refreshToken: refresh_token,
-        user: {
-          id: 'user-' + Math.random().toString(36).substr(2, 9),
-          email,
-          mfa_enabled: false,
-          created_at: new Date().toISOString(),
-        },
-        error: null,
-      })
+      set({ accessToken: access_token, refreshToken: refresh_token, error: null })
       if (typeof window !== 'undefined') {
         localStorage.setItem('access_token', access_token)
         localStorage.setItem('refresh_token', refresh_token)
         localStorage.setItem('user_email', email)
       }
+      const userResponse = await apiClient.getCurrentUser()
+      set({ user: userResponse.data })
     } catch (error: any) {
       const message = error.response?.data?.detail || 'Login failed'
       set({ error: message })
@@ -129,18 +121,18 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   loadUser: async () => {
-    if (typeof window !== 'undefined') {
-      const email = localStorage.getItem('user_email')
-      if (email) {
-        set({
-          user: {
-            id: 'user-' + Math.random().toString(36).substr(2, 9),
-            email,
-            mfa_enabled: false,
-            created_at: new Date().toISOString(),
-          },
-        })
-      }
+    if (typeof window === 'undefined') return
+    const accessToken = localStorage.getItem('access_token')
+    const refreshToken = localStorage.getItem('refresh_token')
+    if (!accessToken) return
+    set({ accessToken, refreshToken })
+    try {
+      const response = await apiClient.getCurrentUser()
+      set({ user: response.data, error: null })
+    } catch {
+      set({ user: null, accessToken: null, refreshToken: null })
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
     }
   },
 }))

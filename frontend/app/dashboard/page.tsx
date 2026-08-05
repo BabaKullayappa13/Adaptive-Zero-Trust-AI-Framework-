@@ -10,120 +10,97 @@ import AuditLogsTable from '@/components/dashboard/audit-logs-table'
 import Charts from '@/components/dashboard/charts'
 import Navbar from '@/components/navbar'
 
+interface Summary {
+  trust_history: Array<{ score: number; created_at: string }>
+  risk_timeline: Array<{ risk_level: string; risk_score: number; created_at: string }>
+  active_sessions: number
+  blocked_sessions: number
+  policy_violations: number
+  cloud: { mode: string; simulation: boolean; processed_by: Record<string, string> }
+  federated_learning: { round: number; model_version: string; participating_clients: number; simulation: boolean; raw_data_shared: boolean }
+  models: Array<{ name: string; version: string; status: string; metrics_available: boolean }>
+}
+
+const metricCards = [
+  ['Active sessions', 'active_sessions'],
+  ['Blocked sessions', 'blocked_sessions'],
+  ['Policy violations', 'policy_violations'],
+] as const
+
 export default function DashboardPage() {
   const router = useRouter()
-  const { user, accessToken, logout } = useAuthStore()
+  const { user, accessToken, logout, loadUser } = useAuthStore()
   const [trustScore, setTrustScore] = useState<any>(null)
   const [riskEvents, setRiskEvents] = useState<any[]>([])
   const [auditLogs, setAuditLogs] = useState<any[]>([])
+  const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Check authentication
+  useEffect(() => { void loadUser() }, [loadUser])
   useEffect(() => {
-    if (!user || !accessToken) {
-      router.push('/auth/login')
-    }
+    if (!user || !accessToken) router.push('/auth/login')
   }, [user, accessToken, router])
 
-  // Load dashboard data
   useEffect(() => {
     if (!user) return
-
+    let active = true
     const loadData = async () => {
       try {
-        setLoading(true)
         setError(null)
-
-        // Get trust score
-        try {
-          const scoreRes = await apiClient.getTrustScore(user.id)
-          setTrustScore(scoreRes.data)
-        } catch (err) {
-          console.error('Failed to load trust score:', err)
-        }
-
-        // Detect risk
-        try {
-          const riskRes = await apiClient.detectRisk(user.id, {
-            login_hour: new Date().getHours(),
-            device_count: 1,
-            failed_attempts: 0,
-            session_duration: 10,
-            geographic_distance: Math.random() * 50,
-            device_trust: 0.85,
-            velocity: Math.random() * 50,
-            request_count: Math.floor(Math.random() * 200),
-            new_device: false,
-          })
-          setRiskEvents([riskRes.data])
-        } catch (err) {
-          console.error('Failed to detect risk:', err)
-        }
-
-        // Get audit logs
-        try {
-          const logsRes = await apiClient.getAuditLogs(user.id)
-          setAuditLogs(logsRes.data.logs || [])
-        } catch (err) {
-          console.error('Failed to load audit logs:', err)
-        }
-      } catch (err: any) {
-        setError('Failed to load dashboard data')
-        console.error('Dashboard error:', err)
+        const [scoreRes, summaryRes, logsRes] = await Promise.all([
+          apiClient.getTrustScore(user.id),
+          apiClient.getDashboardSummary(),
+          apiClient.getAuditLogs(user.id, 10),
+        ])
+        if (!active) return
+        setTrustScore(scoreRes.data)
+        setSummary(summaryRes.data)
+        setRiskEvents((summaryRes.data.risk_timeline || []).map((event: any, index: number) => ({ ...event, id: `risk-${index}`, event_type: 'Continuous assessment', risk_score: event.risk_score, context: {}, explanation: {} })))
+        setAuditLogs(logsRes.data.logs || [])
+      } catch (err) {
+        if (active) setError('Unable to load security telemetry. Verify the API and database connection.')
       } finally {
-        setLoading(false)
+        if (active) setLoading(false)
       }
     }
-
-    loadData()
+    void loadData()
+    const interval = window.setInterval(() => void loadData(), 30000)
+    return () => { active = false; window.clearInterval(interval) }
   }, [user])
 
-  if (!user || !accessToken) {
-    return null
-  }
+  if (!user || !accessToken) return null
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar user={user} onLogout={logout} />
-
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-        {/* Page Title */}
-        <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-foreground">Security Dashboard</h1>
-          <p className="text-slate-400">Real-time threat detection & continuous trust assessment</p>
-        </div>
-
-        {/* Error Alert */}
-        {error && (
-          <div className="bg-red-900/20 border border-red-700 rounded-lg p-4 text-red-200">
-            {error}
+      <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
+        <header className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-4xl font-bold text-foreground">Security dashboard</h1>
+            <span className="badge badge-low">Live · 30s assessment</span>
           </div>
-        )}
+          <p className="text-slate-400">Continuous trust monitoring with proposal features clearly marked when simulated.</p>
+        </header>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="card h-32 bg-slate-800 animate-pulse"></div>
-            ))}
-          </div>
-        )}
+        {error && <div role="alert" className="card border-danger/40 text-danger">{error}</div>}
+        {loading && <div className="card text-slate-400" role="status">Loading security telemetry…</div>}
 
-        {/* Dashboard Content */}
-        {!loading && (
+        {!loading && summary && (
           <>
-            {/* Trust Score Section */}
+            <section aria-label="Security status" className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {metricCards.map(([label, key]) => (
+                <div className="card" key={key}><p className="text-sm text-slate-400">{label}</p><p className="mt-2 text-3xl font-bold text-foreground">{summary[key]}</p></div>
+              ))}
+            </section>
             {trustScore && <TrustScoreCard trustScore={trustScore} />}
-
-            {/* Charts */}
+            <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <div className="card"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-semibold text-foreground">Hybrid cloud posture</h2><p className="mt-1 text-slate-400">Processing placement is a demonstrable simulation.</p></div><span className="badge badge-medium">Simulation</span></div><p className="mt-5 text-3xl font-bold capitalize text-primary">{summary.cloud.mode} cloud</p><dl className="mt-4 flex flex-col gap-2 text-sm">{Object.entries(summary.cloud.processed_by).map(([key, value]) => <div className="flex justify-between gap-4" key={key}><dt className="capitalize text-slate-400">{key.replace('_', ' ')}</dt><dd className="text-foreground">{value}</dd></div>)}</dl></div>
+              <div className="card"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-semibold text-foreground">Federated learning</h2><p className="mt-1 text-slate-400">FedAvg workflow status; client rows never leave the simulator.</p></div><span className="badge badge-medium">Simulation</span></div><div className="mt-5 grid grid-cols-3 gap-3 text-center"><div><p className="text-2xl font-bold text-foreground">{summary.federated_learning.round}</p><p className="text-xs text-slate-400">Round</p></div><div><p className="text-2xl font-bold text-foreground">{summary.federated_learning.participating_clients}</p><p className="text-xs text-slate-400">Clients</p></div><div><p className="text-2xl font-bold text-primary">FedAvg</p><p className="text-xs text-slate-400">Strategy</p></div></div></div>
+            </section>
             <Charts />
-
-            {/* Risk Events & Audit Logs */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <RiskEventsList events={riskEvents} />
-              <AuditLogsTable logs={auditLogs.slice(0, 5)} />
-            </div>
+            <section className="card"><h2 className="text-xl font-semibold text-foreground">Model registry</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{summary.models.map((model) => <div className="rounded-lg border border-slate-700 p-4" key={model.version}><p className="font-semibold text-foreground">{model.name}</p><p className="text-sm text-slate-400">{model.version}</p><span className="badge badge-medium mt-3">{model.status}{model.metrics_available ? '' : ' · metrics pending'}</span></div>)}</div></section>
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2"><RiskEventsList events={riskEvents} /><AuditLogsTable logs={auditLogs} /></div>
           </>
         )}
       </main>
