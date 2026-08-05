@@ -4,8 +4,8 @@
   "private": true,
   "description": "Adaptive Zero Trust-AI Framework for Continuous Multi-Factor Authentication",
   "scripts": {
-    "dev": "vercel dev",
-    "build": "vercel build",
-    "start": "vercel start"
+    "dev": "cd frontend && pnpm exec next dev",
+    "build": "cd frontend && pnpm exec next build",
+    "start": "cd frontend && pnpm exec next start"
   }
 }

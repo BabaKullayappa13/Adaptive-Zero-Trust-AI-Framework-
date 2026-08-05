@@ -458,6 +458,21 @@ For issues, feature requests, or questions:
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2024  
-**Status**: Production Ready
+**Version**: 1.1.0  
+**Last Updated**: 2026-08-06  
+**Status**: Research prototype with security hardening and explicitly labeled simulations
+
+## Implementation boundaries
+
+The dashboard now exposes authenticated telemetry, a 30-second refresh cadence, hybrid-cloud placement metadata, federated-learning status, and model registry metadata. Hybrid-cloud and federated-learning values are simulations; the application does not claim real cloud isolation, secure aggregation, differential privacy, external threat-intelligence feeds, or computed model-comparison metrics unless those integrations are configured and verified.
+
+The backend requires `DATABASE_URL` and `SECRET_KEY`, uses configured CORS origins, short-lived typed access tokens, authenticated user scoping for protected routes, response security headers, and migration-managed security tables. The migration in `backend/migrations/001_security_domain.sql` is additive and must be applied through the project's normal database migration process before using the new security-domain tables.
+
+## Verification status
+
+- Frontend production build: passing.
+- TypeScript check: passing.
+- ESLint: passing with existing warnings for an unoptimized image and custom font usage.
+- Backend syntax check: passing.
+- Full authenticated API and database integration tests: pending a configured PostgreSQL runtime and test fixtures.
+- Secure federated aggregation, external threat intelligence, email OTP delivery, and production cloud isolation: pending; these remain explicitly simulated or adapter-level features.
