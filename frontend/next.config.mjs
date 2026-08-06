@@ -7,6 +7,10 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts"],
   },
+  devIndicators: {
+    buildActivity: true,
+    buildActivityPosition: "bottom-right",
+  },
   async rewrites() {
     return {
       beforeFiles: [
