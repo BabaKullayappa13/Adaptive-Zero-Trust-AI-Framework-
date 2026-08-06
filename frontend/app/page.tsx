@@ -94,7 +94,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-slate-700 py-8 px-6 text-center text-slate-500">
-        <p>&copy; 2024 Zero Trust AI Framework. Enterprise Security for the Modern Era.</p>
+        <p>&copy; 2026 Adaptive Zero Trust-AI Framework for Continuous Multi-Factor Authentication in Hybrid Cloud Security.</p>
       </footer>
     </div>
   )
