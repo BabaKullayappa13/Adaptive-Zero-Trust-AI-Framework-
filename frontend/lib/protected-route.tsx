@@ -6,16 +6,20 @@ import { useAuthStore } from './auth-store'
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const router = useRouter()
-  const { user, accessToken } = useAuthStore()
+  const { user, accessToken, isInitialized, loadUser } = useAuthStore()
 
   useEffect(() => {
-    if (!accessToken || !user) {
+    void loadUser()
+  }, [loadUser])
+
+  useEffect(() => {
+    if (isInitialized && (!accessToken || !user)) {
       router.replace('/auth/login')
     }
-  }, [user, accessToken, router])
+  }, [user, accessToken, isInitialized, router])
 
-  if (!accessToken || !user) {
-    return <div className="flex items-center justify-center h-screen">Redirecting...</div>
+  if (!isInitialized || !accessToken || !user) {
+    return <div className="flex items-center justify-center h-screen">Checking session...</div>
   }
 
   return <>{children}</>

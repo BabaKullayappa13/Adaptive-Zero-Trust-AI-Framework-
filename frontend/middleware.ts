@@ -8,15 +8,10 @@ export function middleware(request: NextRequest) {
   const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
 
   if (isProtectedRoute) {
-    // Check if token exists in cookies
-    const token = request.cookies.get('auth_token')?.value
-    
-    if (!token) {
-      // Redirect to login if no token
-      const loginUrl = new URL('/auth/login', request.url)
-      loginUrl.searchParams.set('from', pathname)
-      return NextResponse.redirect(loginUrl)
-    }
+    // The current auth flow stores bearer tokens in the browser, which is not
+    // available to middleware. Leave the route accessible so the client-side
+    // guards can validate the session without redirect loops.
+    return NextResponse.next()
   }
 
   return NextResponse.next()

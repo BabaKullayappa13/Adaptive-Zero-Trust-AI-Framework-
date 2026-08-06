@@ -32,15 +32,19 @@ const mockPolicies = [
 
 export default function PoliciesPage() {
   const router = useRouter()
-  const { user, accessToken, logout } = useAuthStore()
+  const { user, accessToken, isInitialized, logout, loadUser } = useAuthStore()
 
   useEffect(() => {
-    if (!user || !accessToken) {
+    void loadUser()
+  }, [loadUser])
+
+  useEffect(() => {
+    if (isInitialized && (!user || !accessToken)) {
       router.push('/auth/login')
     }
-  }, [user, accessToken, router])
+  }, [user, accessToken, isInitialized, router])
 
-  if (!user || !accessToken) return null
+  if (!isInitialized || !user || !accessToken) return null
 
   return (
     <div className="min-h-screen bg-background">
