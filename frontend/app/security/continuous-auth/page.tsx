@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -49,13 +49,7 @@ export default function ContinuousAuthDashboard() {
   const [loading, setLoading] = useState(true)
   const user = useAuthStore((state) => state.user)
 
-  useEffect(() => {
-    loadDashboardData()
-    const interval = setInterval(loadDashboardData, 30000) // Refresh every 30 seconds
-    return () => clearInterval(interval)
-  }, [])
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     if (!user?.id) {
       setLoading(false)
       return
@@ -82,7 +76,13 @@ export default function ContinuousAuthDashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    void loadDashboardData()
+    const interval = setInterval(() => void loadDashboardData(), 30000)
+    return () => clearInterval(interval)
+  }, [loadDashboardData])
 
   const getRiskLevelColor = (level: string) => {
     switch (level) {

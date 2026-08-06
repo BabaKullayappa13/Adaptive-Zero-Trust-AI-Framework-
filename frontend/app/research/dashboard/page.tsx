@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { apiClient } from '@/lib/api'
 
@@ -12,11 +12,7 @@ export default function ResearchDashboardPage() {
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    fetchDashboardData()
-  }, [days])
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true)
       const [dashRes, compRes] = await Promise.all([
@@ -30,7 +26,11 @@ export default function ResearchDashboardPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [days])
+
+  useEffect(() => {
+    void fetchDashboardData()
+  }, [fetchDashboardData])
 
   if (!dashboardData) {
     return <main className="flex-1 bg-gray-50 p-8"><div className="text-center text-gray-500">Loading...</div></main>

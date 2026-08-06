@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { apiClient } from '@/lib/api'
 
 export default function HybridCloudPage() {
@@ -9,11 +9,16 @@ export default function HybridCloudPage() {
   const [loading, setLoading] = useState(false)
   const [selectedCloud, setSelectedCloud] = useState<any>(null)
 
-  useEffect(() => {
-    fetchData()
+  const fetchCloudHealth = useCallback(async (cloudId: number) => {
+    try {
+      const response = await apiClient.get(`/cloud/${cloudId}/health`)
+      setSelectedCloud(response.data)
+    } catch (error) {
+      console.error('[v0] Failed to fetch cloud health:', error)
+    }
   }, [])
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const [topoRes, cloudsRes] = await Promise.all([
@@ -30,16 +35,11 @@ export default function HybridCloudPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [fetchCloudHealth])
 
-  const fetchCloudHealth = async (cloudId: number) => {
-    try {
-      const response = await apiClient.get(`/cloud/${cloudId}/health`)
-      setSelectedCloud(response.data)
-    } catch (error) {
-      console.error('[v0] Failed to fetch cloud health:', error)
-    }
-  }
+  useEffect(() => {
+    void fetchData()
+  }, [fetchData])
 
   return (
     <main className="flex-1 bg-gray-50 p-8">
