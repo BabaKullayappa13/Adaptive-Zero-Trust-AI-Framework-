@@ -34,7 +34,7 @@ class APIClient {
               try {
                 const requestConfig = error.config as typeof error.config & { _retry?: boolean }
                 if (requestConfig?._retry) {
-                  throw refreshError
+                  return Promise.reject(error)
                 }
                 requestConfig._retry = true
                 const response = await this.client.post('/auth/refresh', { refresh_token: refreshToken })
@@ -59,19 +59,19 @@ class APIClient {
     )
   }
 
-  async get<T = unknown>(url: string, config?: Parameters<AxiosInstance['get']>[1]) {
+  async get<T = any>(url: string, config?: Parameters<AxiosInstance['get']>[1]) {
     return this.client.get<T>(url.replace(/^\/api\//, '/'), config)
   }
 
-  async post<T = unknown>(url: string, data?: unknown, config?: Parameters<AxiosInstance['post']>[2]) {
+  async post<T = any>(url: string, data?: unknown, config?: Parameters<AxiosInstance['post']>[2]) {
     return this.client.post<T>(url.replace(/^\/api\//, '/'), data, config)
   }
 
-  async patch<T = unknown>(url: string, data?: unknown, config?: Parameters<AxiosInstance['patch']>[2]) {
+  async patch<T = any>(url: string, data?: unknown, config?: Parameters<AxiosInstance['patch']>[2]) {
     return this.client.patch<T>(url.replace(/^\/api\//, '/'), data, config)
   }
 
-  async delete<T = unknown>(url: string, config?: Parameters<AxiosInstance['delete']>[1]) {
+  async delete<T = any>(url: string, config?: Parameters<AxiosInstance['delete']>[1]) {
     return this.client.delete<T>(url.replace(/^\/api\//, '/'), config)
   }
 

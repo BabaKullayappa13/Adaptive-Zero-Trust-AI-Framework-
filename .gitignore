@@ -13,3 +13,14 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+models/
+artifacts/
