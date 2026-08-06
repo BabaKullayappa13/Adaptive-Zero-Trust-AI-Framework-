@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/lib/auth-store'
 import { apiClient } from '@/lib/api'
@@ -137,9 +138,12 @@ export default function MFASetupPage() {
                 {qrCode && (
                   <div className="flex justify-center">
                     <div className="bg-white p-4 rounded-lg">
-                      <img
+                      <Image
                         src={qrCode}
                         alt="MFA QR Code"
+                        width={192}
+                        height={192}
+                        unoptimized
                         className="w-48 h-48"
                       />
                     </div>

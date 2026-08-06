@@ -29,7 +29,7 @@ const metricCards = [
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { user, accessToken, logout, loadUser } = useAuthStore()
+  const { user, accessToken, isInitialized, logout, loadUser } = useAuthStore()
   const [trustScore, setTrustScore] = useState<any>(null)
   const [riskEvents, setRiskEvents] = useState<any[]>([])
   const [auditLogs, setAuditLogs] = useState<any[]>([])
@@ -39,8 +39,8 @@ export default function DashboardPage() {
 
   useEffect(() => { void loadUser() }, [loadUser])
   useEffect(() => {
-    if (!user || !accessToken) router.push('/auth/login')
-  }, [user, accessToken, router])
+    if (isInitialized && (!user || !accessToken)) router.push('/auth/login')
+  }, [user, accessToken, isInitialized, router])
 
   useEffect(() => {
     if (!user) return
@@ -69,7 +69,7 @@ export default function DashboardPage() {
     return () => { active = false; window.clearInterval(interval) }
   }, [user])
 
-  if (!user || !accessToken) return null
+  if (!isInitialized || !user || !accessToken) return null
 
   return (
     <div className="min-h-screen bg-background">

@@ -13,6 +13,7 @@ interface AuthState {
   accessToken: string | null
   refreshToken: string | null
   isLoading: boolean
+  isInitialized: boolean
   error: string | null
 
   // Actions
@@ -33,6 +34,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   refreshToken: null,
   isLoading: false,
+  isInitialized: false,
   error: null,
 
   setUser: (user) => set({ user }),
@@ -72,7 +74,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const response = await apiClient.login(email, password)
       const { access_token, refresh_token } = response.data
-      set({ accessToken: access_token, refreshToken: refresh_token, error: null })
+      set({ accessToken: access_token, refreshToken: refresh_token, isInitialized: true, error: null })
       if (typeof window !== 'undefined') {
         localStorage.setItem('access_token', access_token)
         localStorage.setItem('refresh_token', refresh_token)
@@ -136,13 +138,16 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (typeof window === 'undefined') return
     const accessToken = localStorage.getItem('access_token')
     const refreshToken = localStorage.getItem('refresh_token')
-    if (!accessToken) return
+    if (!accessToken) {
+      set({ isInitialized: true })
+      return
+    }
     set({ accessToken, refreshToken })
     try {
       const response = await apiClient.getCurrentUser()
-      set({ user: response.data, error: null })
+      set({ user: response.data, error: null, isInitialized: true })
     } catch {
-      set({ user: null, accessToken: null, refreshToken: null })
+      set({ user: null, accessToken: null, refreshToken: null, isInitialized: true })
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
     }

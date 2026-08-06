@@ -41,16 +41,22 @@ class APIClient {
                 const { access_token, refresh_token: nextRefreshToken } = response.data
                 localStorage.setItem('access_token', access_token)
                 if (nextRefreshToken) localStorage.setItem('refresh_token', nextRefreshToken)
-                error.config.headers.Authorization = `Bearer ${access_token}`
-                return this.client(error.config)
+                if (error.config) {
+                  error.config.headers = error.config.headers ?? {}
+                  error.config.headers.Authorization = `Bearer ${access_token}`
+                  return this.client(error.config)
+                }
+                return Promise.reject(error)
               } catch (refreshError) {
-                // Refresh failed - redirect to login
+                // Refresh failed - redirect to login and settle the request.
                 localStorage.removeItem('access_token')
                 localStorage.removeItem('refresh_token')
                 window.location.href = '/auth/login'
+                return Promise.reject(refreshError)
               }
             } else {
               window.location.href = '/auth/login'
+              return Promise.reject(error)
             }
           }
         }
