@@ -28,6 +28,16 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 from performance_tracker import PerformanceTracker, timing_decorator
 from research_report import generate_comparison_report
+from federated_learning import FederatedLearningService
+from hybrid_cloud import HybridCloudService
+from zero_trust_policy import ZeroTrustPolicyEngine
+from response_time_analysis import ResponseTimeAnalysis
+from research_evaluation import ResearchEvaluationModule
+from ieee_baseline_comparison import IEEEBaselineComparison
+from research_dashboard import ResearchDashboard
+from explainable_ai import ExplainableAIService
+from automatic_reports import AutomaticReportsService
+from api_documentation import APIDocumentationService
 import time
 
 # ============================================================================
@@ -809,21 +819,654 @@ async def research_report(hours: int = 24, admin_id: str = Depends(is_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
+# FEDERATED LEARNING ENDPOINTS (Feature 1)
+# ============================================================================
+
+@app.post("/api/federated/rounds")
+async def create_federated_round(admin_id: str = Depends(is_admin)):
+    """Create a new federated learning round"""
+    if not federated_learning_service:
+        return {"error": "Federated learning service not initialized"}
+    
+    try:
+        # Get current round number
+        async with await get_db_connection() as conn:
+            result = await conn.execute("SELECT MAX(round_number) FROM federated_rounds")
+            max_round = (await result.fetchone())[0] or 0
+        
+        round_result = await federated_learning_service.create_round(
+            round_number=max_round + 1,
+            model_version=f"fedavg-v{max_round + 1}",
+            min_participants=2,
+            target_accuracy=0.95
+        )
+        return round_result
+    except Exception as e:
+        print(f"[v0] Failed to create federated round: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/federated/rounds/{round_id}/participants")
+async def register_federated_participant(round_id: int, org_id: int, admin_id: str = Depends(is_admin)):
+    """Register organization as participant"""
+    if not federated_learning_service:
+        return {"error": "Federated learning service not initialized"}
+    
+    try:
+        result = await federated_learning_service.register_participant(round_id, org_id)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to register participant: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/federated/participants/{participant_id}/submit")
+async def submit_local_model(participant_id: int, accuracy: float, loss: float, 
+                             data_samples: int, admin_id: str = Depends(is_admin)):
+    """Submit local model training results"""
+    if not federated_learning_service:
+        return {"error": "Federated learning service not initialized"}
+    
+    try:
+        result = await federated_learning_service.submit_local_model(
+            participant_id, accuracy, loss, data_samples
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to submit local model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/federated/rounds/{round_id}/aggregate")
+async def aggregate_federated_models(round_id: int, admin_id: str = Depends(is_admin)):
+    """Aggregate models using FedAvg"""
+    if not federated_learning_service:
+        return {"error": "Federated learning service not initialized"}
+    
+    try:
+        result = await federated_learning_service.aggregate_models(round_id)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to aggregate models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/federated/rounds/{round_id}/status")
+async def get_federated_round_status(round_id: int, admin_id: str = Depends(is_admin)):
+    """Get federated round status"""
+    if not federated_learning_service:
+        return {"error": "Federated learning service not initialized"}
+    
+    try:
+        result = await federated_learning_service.get_round_status(round_id)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get round status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/federated/rounds/history")
+async def get_federated_history(limit: int = 10, admin_id: str = Depends(is_admin)):
+    """Get federated round history"""
+    if not federated_learning_service:
+        return {"error": "Federated learning service not initialized"}
+    
+    try:
+        result = await federated_learning_service.get_round_history(limit)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/federated/models")
+async def get_federated_models(limit: int = 10, admin_id: str = Depends(is_admin)):
+    """Get federated model versions"""
+    if not federated_learning_service:
+        return {"error": "Federated learning service not initialized"}
+    
+    try:
+        result = await federated_learning_service.get_model_versions(limit)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# HYBRID CLOUD ENDPOINTS (Feature 2)
+# ============================================================================
+
+@app.post("/api/cloud/register")
+async def register_cloud_provider(name: str, cloud_type: str, provider: str, 
+                                  region: str, endpoint: str, api_key: str,
+                                  is_primary: bool = False, admin_id: str = Depends(is_admin)):
+    """Register a cloud provider"""
+    if not hybrid_cloud_service:
+        return {"error": "Hybrid cloud service not initialized"}
+    
+    try:
+        result = await hybrid_cloud_service.register_cloud_provider(
+            name, cloud_type, provider, region, endpoint, api_key, is_primary
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to register cloud provider: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cloud/active")
+async def get_active_clouds(cloud_type: Optional[str] = None, admin_id: str = Depends(is_admin)):
+    """Get active cloud configurations"""
+    if not hybrid_cloud_service:
+        return {"error": "Hybrid cloud service not initialized"}
+    
+    try:
+        result = await hybrid_cloud_service.get_active_clouds(cloud_type)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get active clouds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cloud/topology")
+async def get_cloud_topology(admin_id: str = Depends(is_admin)):
+    """Get overall cloud topology"""
+    if not hybrid_cloud_service:
+        return {"error": "Hybrid cloud service not initialized"}
+    
+    try:
+        result = await hybrid_cloud_service.get_cloud_topology()
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get topology: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cloud/{cloud_id}/health")
+async def get_cloud_health(cloud_id: int, admin_id: str = Depends(is_admin)):
+    """Get cloud health status"""
+    if not hybrid_cloud_service:
+        return {"error": "Hybrid cloud service not initialized"}
+    
+    try:
+        result = await hybrid_cloud_service.get_cloud_health(cloud_id)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get cloud health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/cloud/{cloud_id}/health-check")
+async def record_cloud_health(cloud_id: int, latency_ms: float, availability_percent: float,
+                             throughput_mbps: float, error_rate: float,
+                             admin_id: str = Depends(is_admin)):
+    """Record cloud health metrics"""
+    if not hybrid_cloud_service:
+        return {"error": "Hybrid cloud service not initialized"}
+    
+    try:
+        result = await hybrid_cloud_service.record_health_check(
+            cloud_id, latency_ms, availability_percent, throughput_mbps, error_rate
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to record health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/cloud/{cloud_type}/failover")
+async def trigger_cloud_failover(cloud_type: str, admin_id: str = Depends(is_admin)):
+    """Simulate failover to backup cloud"""
+    if not hybrid_cloud_service:
+        return {"error": "Hybrid cloud service not initialized"}
+    
+    try:
+        result = await hybrid_cloud_service.simulate_failover(cloud_type)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to trigger failover: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cloud/sync-history")
+async def get_cloud_sync_history(cloud_id: Optional[int] = None, hours: int = 24,
+                                admin_id: str = Depends(is_admin)):
+    """Get cloud sync history"""
+    if not hybrid_cloud_service:
+        return {"error": "Hybrid cloud service not initialized"}
+    
+    try:
+        result = await hybrid_cloud_service.get_sync_history(cloud_id, hours)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get sync history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# ZERO TRUST POLICY ENDPOINTS (Feature 3)
+# ============================================================================
+
+@app.post("/api/policies")
+async def create_zero_trust_policy(name: str, description: str, policy_type: str,
+                                   priority: int, admin_id: str = Depends(is_admin)):
+    """Create a new zero trust policy"""
+    if not zero_trust_policy_engine:
+        return {"error": "Zero trust policy engine not initialized"}
+    
+    try:
+        result = await zero_trust_policy_engine.create_policy(
+            name, description, policy_type, priority, admin_id
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to create policy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/policies/{policy_id}/rules")
+async def add_policy_rule(policy_id: int, rule_name: str, condition_type: str,
+                         condition_value: str, action: str, severity: str,
+                         admin_id: str = Depends(is_admin)):
+    """Add a rule to a policy"""
+    if not zero_trust_policy_engine:
+        return {"error": "Zero trust policy engine not initialized"}
+    
+    try:
+        result = await zero_trust_policy_engine.add_policy_rule(
+            policy_id, rule_name, condition_type, condition_value, action, severity
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to add rule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/policies/{policy_id}/evaluate")
+async def evaluate_policy(policy_id: int, device_fingerprint: str, location: str,
+                         ip_address: str, behavioral_score: float,
+                         user_id: str = Depends(get_current_user)):
+    """Evaluate a policy for current user"""
+    if not zero_trust_policy_engine:
+        return {"error": "Zero trust policy engine not initialized"}
+    
+    try:
+        result = await zero_trust_policy_engine.evaluate_policy(
+            user_id, policy_id, device_fingerprint, location, ip_address, behavioral_score
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to evaluate policy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/policies/{policy_id}")
+async def get_policy_details(policy_id: int, admin_id: str = Depends(is_admin)):
+    """Get policy details with rules"""
+    if not zero_trust_policy_engine:
+        return {"error": "Zero trust policy engine not initialized"}
+    
+    try:
+        result = await zero_trust_policy_engine.get_policy_details(policy_id)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get policy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/policies/active")
+async def get_active_policies(admin_id: str = Depends(is_admin)):
+    """Get all active policies"""
+    if not zero_trust_policy_engine:
+        return {"error": "Zero trust policy engine not initialized"}
+    
+    try:
+        result = await zero_trust_policy_engine.get_active_policies()
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get policies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sessions/risk-assessment")
+async def assess_session_risk(device_id: Optional[int] = None,
+                             session_duration_hours: float = 0,
+                             request_count: int = 0,
+                             user_id: str = Depends(get_current_user)):
+    """Assess session risk level"""
+    if not zero_trust_policy_engine:
+        return {"error": "Zero trust policy engine not initialized"}
+    
+    try:
+        result = await zero_trust_policy_engine.evaluate_session_risk(
+            user_id, device_id, session_duration_hours, request_count
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to assess risk: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# RESPONSE TIME ANALYSIS ENDPOINTS (Feature 5)
+# ============================================================================
+
+@app.post("/api/metrics/record")
+async def record_operation_time(operation_type: str, duration_ms: float,
+                               success: bool = True,
+                               user_id: str = Depends(get_current_user)):
+    """Record operation response time"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.record_operation_time(
+            operation_type, duration_ms, user_id, success
+        )
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to record metric: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/metrics/operation/{operation_type}")
+async def get_operation_stats(operation_type: str, hours: int = 24,
+                             admin_id: str = Depends(is_admin)):
+    """Get statistics for an operation type"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.get_operation_statistics(operation_type, hours)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/metrics/summary")
+async def get_metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)):
+    """Get summary for all operations"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.get_all_operations_summary(hours)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/metrics/hourly")
+async def get_hourly_metrics(operation_type: Optional[str] = None, days: int = 7,
+                            admin_id: str = Depends(is_admin)):
+    """Get hourly aggregated metrics"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.get_hourly_aggregates(operation_type, days)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get hourly metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/metrics/daily")
+async def get_daily_metrics(operation_type: Optional[str] = None, days: int = 30,
+                           admin_id: str = Depends(is_admin)):
+    """Get daily aggregated metrics"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.get_daily_aggregates(operation_type, days)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get daily metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/metrics/weekly")
+async def get_weekly_metrics(days: int = 90, admin_id: str = Depends(is_admin)):
+    """Get weekly aggregated metrics"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.get_weekly_aggregates(days)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get weekly metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/metrics/slowest")
+async def get_slowest_operations(limit: int = 20, admin_id: str = Depends(is_admin)):
+    """Get slowest operations"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.get_slowest_operations(limit)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get slowest: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/metrics/trend/{operation_type}")
+async def get_performance_trend(operation_type: str, hours: int = 48,
+                               admin_id: str = Depends(is_admin)):
+    """Get performance trend over time"""
+    if not response_time_analysis:
+        return {"error": "Response time analysis not initialized"}
+    
+    try:
+        result = await response_time_analysis.get_performance_trend(operation_type, hours)
+        return result
+    except Exception as e:
+        print(f"[v0] Failed to get trend: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# RESEARCH EVALUATION ENDPOINTS (Feature 4)
+# ============================================================================
+
+@app.post("/api/research/authentication-metrics")
+async def record_auth_metrics(true_positives: int, true_negatives: int,
+                             false_positives: int, false_negatives: int,
+                             admin_id: str = Depends(is_admin)):
+    """Record authentication accuracy metrics"""
+    if not research_evaluation_module:
+        return {"error": "Research evaluation not initialized"}
+    
+    try:
+        result = await research_evaluation_module.record_authentication_metrics(
+            true_positives, true_negatives, false_positives, false_negatives
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/authentication-metrics/history")
+async def get_auth_metrics_history(days: int = 30, admin_id: str = Depends(is_admin)):
+    """Get authentication metrics history"""
+    if not research_evaluation_module:
+        return {"error": "Research evaluation not initialized"}
+    
+    try:
+        result = await research_evaluation_module.get_authentication_metrics_history(days)
+        return {"metrics": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/metrics/latest")
+async def get_latest_auth_metrics(admin_id: str = Depends(is_admin)):
+    """Get latest authentication metrics"""
+    if not research_evaluation_module:
+        return {"error": "Research evaluation not initialized"}
+    
+    try:
+        result = await research_evaluation_module.get_latest_auth_metrics()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/threats/summary")
+async def get_threat_summary(admin_id: str = Depends(is_admin)):
+    """Get threat intelligence summary"""
+    if not research_evaluation_module:
+        return {"error": "Research evaluation not initialized"}
+    
+    try:
+        result = await research_evaluation_module.get_threat_intelligence_summary()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# IEEE BASELINE COMPARISON ENDPOINTS (Feature 6)
+# ============================================================================
+
+@app.post("/api/research/baseline-comparison")
+async def record_baseline_comparison(metric_name: str, our_value: float,
+                                    gap_analysis: Optional[str] = None,
+                                    admin_id: str = Depends(is_admin)):
+    """Record comparison against IEEE baseline"""
+    if not ieee_baseline_comparison:
+        return {"error": "IEEE baseline not initialized"}
+    
+    try:
+        result = await ieee_baseline_comparison.record_comparison(
+            metric_name, our_value, gap_analysis
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/baseline-comparison/report")
+async def get_baseline_report(admin_id: str = Depends(is_admin)):
+    """Get comprehensive baseline comparison report"""
+    if not ieee_baseline_comparison:
+        return {"error": "IEEE baseline not initialized"}
+    
+    try:
+        result = await ieee_baseline_comparison.get_comparison_report()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/compliance-score")
+async def get_compliance_score(admin_id: str = Depends(is_admin)):
+    """Get IEEE compliance score"""
+    if not ieee_baseline_comparison:
+        return {"error": "IEEE baseline not initialized"}
+    
+    try:
+        result = await ieee_baseline_comparison.generate_compliance_score()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# RESEARCH DASHBOARD ENDPOINTS (Feature 8)
+# ============================================================================
+
+@app.get("/api/research/dashboard/summary")
+async def get_dashboard_summary(days: int = 30, admin_id: str = Depends(is_admin)):
+    """Get complete dashboard summary"""
+    if not research_dashboard:
+        return {"error": "Research dashboard not initialized"}
+    
+    try:
+        result = await research_dashboard.get_dashboard_summary(days)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/dashboard/auth-trends")
+async def get_auth_trends(days: int = 30, admin_id: str = Depends(is_admin)):
+    """Get authentication trends"""
+    if not research_dashboard:
+        return {"error": "Research dashboard not initialized"}
+    
+    try:
+        result = await research_dashboard.get_authentication_trends(days)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/dashboard/threat-analytics")
+async def get_threat_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
+    """Get threat analytics"""
+    if not research_dashboard:
+        return {"error": "Research dashboard not initialized"}
+    
+    try:
+        result = await research_dashboard.get_threat_analytics(days)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/dashboard/user-behavior")
+async def get_user_behavior(days: int = 30, admin_id: str = Depends(is_admin)):
+    """Get user behavior analysis"""
+    if not research_dashboard:
+        return {"error": "Research dashboard not initialized"}
+    
+    try:
+        result = await research_dashboard.get_user_behavior_analysis(days)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/dashboard/device-analytics")
+async def get_device_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
+    """Get device analytics"""
+    if not research_dashboard:
+        return {"error": "Research dashboard not initialized"}
+    
+    try:
+        result = await research_dashboard.get_device_analytics(days)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/research/dashboard/risk-distribution")
+async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin)):
+    """Get risk distribution"""
+    if not research_dashboard:
+        return {"error": "Research dashboard not initialized"}
+    
+    try:
+        result = await research_dashboard.get_risk_distribution(days)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
 # STARTUP & SHUTDOWN
 # ============================================================================
 
-# Global performance tracker instance
+# Global service instances
 performance_tracker = None
+federated_learning_service = None
+hybrid_cloud_service = None
+zero_trust_policy_engine = None
+response_time_analysis = None
+research_evaluation_module = None
+ieee_baseline_comparison = None
+research_dashboard = None
+explainable_ai_service = None
+automatic_reports_service = None
+api_documentation_service = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup"""
-    global performance_tracker
+    global performance_tracker, federated_learning_service, hybrid_cloud_service, zero_trust_policy_engine, response_time_analysis, research_evaluation_module, ieee_baseline_comparison, research_dashboard, explainable_ai_service, automatic_reports_service, api_documentation_service
     try:
         await init_db()
-        performance_tracker = PerformanceTracker(lambda: psycopg.AsyncConnection.connect(DATABASE_URL))
+        db_connect = lambda: psycopg.AsyncConnection.connect(DATABASE_URL)
+        performance_tracker = PerformanceTracker(db_connect)
+        federated_learning_service = FederatedLearningService(db_connect)
+        hybrid_cloud_service = HybridCloudService(db_connect)
+        zero_trust_policy_engine = ZeroTrustPolicyEngine(db_connect)
+        response_time_analysis = ResponseTimeAnalysis(db_connect)
+        research_evaluation_module = ResearchEvaluationModule(db_connect)
+        ieee_baseline_comparison = IEEEBaselineComparison(db_connect)
+        research_dashboard = ResearchDashboard(db_connect)
+        explainable_ai_service = ExplainableAIService(db_connect)
+        automatic_reports_service = AutomaticReportsService(db_connect)
+        api_documentation_service = APIDocumentationService()
         print("✓ Database connected")
         print("✓ Performance tracking initialized")
+        print("✓ Federated learning service initialized")
+        print("✓ Hybrid cloud service initialized")
+        print("✓ Zero trust policy engine initialized")
+        print("✓ Response time analysis initialized")
+        print("✓ Research evaluation module initialized")
+        print("✓ IEEE baseline comparison initialized")
+        print("✓ Research dashboard initialized")
+        print("✓ Explainable AI service initialized")
+        print("✓ Automatic reports service initialized")
+        print("✓ API documentation service initialized")
         print("✓ ML models initialized")
     except Exception as e:
         print(f"✗ Startup error: {e}")
