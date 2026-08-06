@@ -18,8 +18,8 @@ export default function FederatedLearningPage() {
     try {
       setLoading(true)
       const [roundsRes, modelsRes] = await Promise.all([
-        apiClient.get('/admin/federated/rounds/history?limit=10'),
-        apiClient.get('/admin/federated/models?limit=10')
+        apiClient.get('/federated/rounds/history?limit=10'),
+        apiClient.get('/federated/models?limit=10')
       ])
       setRounds(roundsRes.data)
       setModels(modelsRes.data)
@@ -35,7 +35,7 @@ export default function FederatedLearningPage() {
 
   const handleCreateRound = async () => {
     try {
-      const response = await apiClient.post('/api/federated/rounds', {})
+      const response = await apiClient.post('/federated/rounds', {})
       setRounds([response.data, ...rounds])
       setCurrentRound(response.data)
     } catch (error) {
@@ -46,7 +46,7 @@ export default function FederatedLearningPage() {
   const handleAggregateModels = async () => {
     if (!currentRound) return
     try {
-      const response = await apiClient.post(`/api/federated/rounds/${currentRound.round_id}/aggregate`, {})
+      const response = await apiClient.post(`/federated/rounds/${currentRound.round_id}/aggregate`, {})
       fetchData()
     } catch (error) {
       console.error('[v0] Failed to aggregate:', error)

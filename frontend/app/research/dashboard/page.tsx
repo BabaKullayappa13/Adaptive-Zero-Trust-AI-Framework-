@@ -20,8 +20,8 @@ export default function ResearchDashboardPage() {
     try {
       setLoading(true)
       const [dashRes, compRes] = await Promise.all([
-        apiClient.get(`/api/research/dashboard/summary?days=${days}`),
-        apiClient.get('/api/research/compliance-score')
+        apiClient.get(`/research/dashboard/summary?days=${days}`),
+        apiClient.get('/research/compliance-score')
       ])
       setDashboardData(dashRes.data)
       setComplianceScore(compRes.data)

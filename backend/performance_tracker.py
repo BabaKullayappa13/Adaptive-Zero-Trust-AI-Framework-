@@ -5,7 +5,6 @@ import functools
 from typing import Optional, Callable, Any
 from datetime import datetime, timedelta
 import statistics
-from aiopg import AsyncConnection
 
 
 class PerformanceTracker:

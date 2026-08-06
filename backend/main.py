@@ -145,14 +145,26 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    totp_code: Optional[str] = Field(default=None, min_length=6, max_length=8)
 
 class MFASetup(BaseModel):
     user_id: str
-    enable: bool
+    enable: bool = True
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=20)
 
 class MFAVerify(BaseModel):
     user_id: str
-    totp_code: str
+    totp_code: str = Field(..., min_length=6, max_length=8)
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    token: str = Field(..., min_length=20)
+    new_password: str = Field(..., min_length=8)
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -192,20 +204,24 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify password against hash"""
     return pwd_context.verify(plain_password, hashed_password)
 
-def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Create JWT access token"""
+def create_access_token(user_id: str, session_id: Optional[str] = None, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a short-lived JWT bound to a persisted server-side session."""
     if expires_delta is None:
         expires_delta = timedelta(minutes=TOKEN_EXPIRE_MINUTES)
     
     expire = datetime.utcnow() + expires_delta
     to_encode = {"sub": user_id, "exp": expire, "type": "access"}
+    if session_id:
+        to_encode["sid"] = session_id
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def create_refresh_token(user_id: str) -> str:
-    """Create JWT refresh token"""
+def create_refresh_token(user_id: str, session_id: Optional[str] = None) -> str:
+    """Create a refresh token bound to the authenticated session."""
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode = {"sub": user_id, "exp": expire, "type": "refresh"}
+    if session_id:
+        to_encode["sid"] = session_id
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -232,9 +248,20 @@ async def get_current_user(
     user_id = verify_token(credentials.credentials)
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired access token")
-    result = await conn.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
+    session_id = payload.get("sid")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Session-bound token required")
+    result = await conn.execute(
+        """SELECT 1 FROM auth_sessions
+           WHERE id = %s AND user_id = %s AND expires_at > NOW() AND revoked_at IS NULL""",
+        (session_id, user_id),
+    )
     if not await result.fetchone():
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(status_code=401, detail="Session expired or revoked")
     return user_id
 
 
@@ -374,7 +401,7 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
         
         # Get user
         result = await conn.execute(
-            "SELECT id, password_hash, mfa_enabled FROM users WHERE email = %s",
+            "SELECT id, password_hash, mfa_enabled, mfa_secret FROM users WHERE email = %s",
             (credentials.email,)
         )
         user = await result.fetchone()
@@ -382,11 +409,16 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
         if not user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        user_id, password_hash, mfa_enabled = user
+        user_id, password_hash, mfa_enabled, mfa_secret = user
         
         # Verify password
         if not verify_password(credentials.password, password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        # Enforce the second factor for accounts that have enabled MFA.
+        if mfa_enabled:
+            if not mfa_secret or not credentials.totp_code or not pyotp.TOTP(mfa_secret).verify(credentials.totp_code, valid_window=1):
+                raise HTTPException(status_code=401, detail="A valid MFA code is required")
         
         # Update last login
         await conn.execute(
@@ -410,13 +442,13 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
         await conn.commit()
         
         # Generate tokens
-        access_token = create_access_token(user_id)
-        refresh_token = create_refresh_token(user_id)
+        access_token = create_access_token(user_id, session_id=session_id)
+        refresh_token = create_refresh_token(user_id, session_id=session_id)
         
         # Log audit event
         await conn.execute(
             """
-            INSERT INTO audit_logs (id, user_id, action, result, ip_address, created_at)
+            INSERT INTO audit_logs (id, user_id, action_type, status, ip_address, created_at)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (str(uuid.uuid4()), user_id, "LOGIN_SUCCESS", "SUCCESS", ip_address, datetime.utcnow())
@@ -438,10 +470,10 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
 # ============================================================================
 
 @app.post("/api/auth/refresh", response_model=TokenResponse)
-async def refresh_token(body: dict, conn: AsyncConnection = Depends(get_db_connection)):
-    """Refresh access token using refresh token"""
+async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depends(get_db_connection)):
+    """Refresh access token using a validated refresh token."""
     try:
-        refresh_token_str = body.get("refresh_token")
+        refresh_token_str = body.refresh_token
         if not refresh_token_str:
             raise HTTPException(status_code=400, detail="Refresh token required")
         
@@ -449,14 +481,24 @@ async def refresh_token(body: dict, conn: AsyncConnection = Depends(get_db_conne
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
         
-        # Verify user still exists
-        result = await conn.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+        try:
+            refresh_payload = jwt.decode(refresh_token_str, SECRET_KEY, algorithms=[ALGORITHM])
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        session_id = refresh_payload.get("sid")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session-bound refresh token required")
+        result = await conn.execute(
+            """SELECT 1 FROM auth_sessions
+               WHERE id = %s AND user_id = %s AND expires_at > NOW() AND revoked_at IS NULL""",
+            (session_id, user_id),
+        )
         if not await result.fetchone():
-            raise HTTPException(status_code=401, detail="User not found")
+            raise HTTPException(status_code=401, detail="Session expired or revoked")
         
-        # Generate new tokens
-        new_access_token = create_access_token(user_id)
-        new_refresh_token = create_refresh_token(user_id)
+        # Rotate the short-lived access token while retaining the active session.
+        new_access_token = create_access_token(user_id, session_id=session_id)
+        new_refresh_token = create_refresh_token(user_id, session_id=session_id)
         
         return TokenResponse(
             access_token=new_access_token,
@@ -491,11 +533,15 @@ async def current_user(user_id: str = Depends(get_current_user), conn: AsyncConn
 async def logout(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Logout user and invalidate session"""
     try:
-        # Record logout event
+        # Revoke all active sessions for this user before recording the event.
         await conn.execute(
-            """INSERT INTO audit_logs (user_id, action, timestamp) 
-               VALUES (%s, %s, NOW())""",
-            (user_id, 'logout')
+            "UPDATE auth_sessions SET revoked_at = NOW() WHERE user_id = %s AND revoked_at IS NULL",
+            (user_id,),
+        )
+        await conn.execute(
+            """INSERT INTO audit_logs (user_id, action_type, status, created_at)
+               VALUES (%s, %s, %s, NOW())""",
+            (user_id, "LOGOUT", "SUCCESS")
         )
         await conn.commit()
         
@@ -509,7 +555,7 @@ async def logout(user_id: str = Depends(get_current_user), conn: AsyncConnection
 # ============================================================================
 
 @app.post("/api/auth/forgot-password")
-async def forgot_password(email: str, request: Request):
+async def forgot_password(body: ForgotPasswordRequest, request: Request):
     """Send password reset email"""
     if not password_reset_service:
         raise HTTPException(status_code=500, detail="Service unavailable")
@@ -520,14 +566,11 @@ async def forgot_password(email: str, request: Request):
         if not await check_rate_limit(ip_address, limit_type='auth'):
             raise HTTPException(status_code=429, detail="Too many requests")
         
-        token, user_id = await password_reset_service.generate_reset_token(email)
+        await password_reset_service.generate_reset_token(body.email)
         
-        # Note: In production, send email with reset link
-        # For now, return token for testing (REMOVE IN PRODUCTION)
-        return {
-            "message": "If email exists, reset link has been sent",
-            "reset_token": token  # REMOVE IN PRODUCTION
-        }
+        # Delivery is intentionally delegated to a configured mail adapter.
+        # Never return a reset token from an authentication endpoint.
+        return {"message": "If email exists, reset link has been sent"}
     except HTTPException:
         raise
     except Exception as e:
@@ -538,17 +581,13 @@ async def forgot_password(email: str, request: Request):
 # ============================================================================
 
 @app.post("/api/auth/reset-password")
-async def reset_password(email: str, token: str, new_password: str):
+async def reset_password(body: ResetPasswordRequest):
     """Reset password using token"""
     if not password_reset_service:
         raise HTTPException(status_code=500, detail="Service unavailable")
     
     try:
-        # Validate password strength
-        if len(new_password) < 8:
-            raise HTTPException(status_code=400, detail="Password too short (minimum 8 characters)")
-        
-        success = await password_reset_service.reset_password(email, token, new_password)
+        success = await password_reset_service.reset_password(body.email, body.token, body.new_password)
         
         if not success:
             raise HTTPException(status_code=400, detail="Invalid or expired reset token")
@@ -564,8 +603,9 @@ async def reset_password(email: str, token: str, new_password: str):
 # ============================================================================
 
 @app.post("/api/auth/mfa/setup")
-async def setup_mfa(user_id: str, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    """Generate MFA secret for the authenticated user."""
+async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Generate and persist a pending MFA secret for the authenticated user."""
+    user_id = mfa_setup.user_id
     ensure_owner(user_id, current_user_id)
     try:
         # Verify user exists
@@ -573,9 +613,14 @@ async def setup_mfa(user_id: str, current_user_id: str = Depends(get_current_use
         if not await result.fetchone():
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Generate secret
+        # Persist the secret as pending until the user proves possession of it.
         secret = pyotp.random_base32()
         totp = pyotp.TOTP(secret)
+        await conn.execute(
+            "UPDATE users SET mfa_secret = %s, mfa_enabled = FALSE WHERE id = %s",
+            (secret, user_id),
+        )
+        await conn.commit()
         
         return {
             "secret": secret,
@@ -596,23 +641,21 @@ async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_c
     """Verify TOTP code and enable MFA."""
     ensure_owner(mfa_verify.user_id, current_user_id)
     try:
-        # Get user's MFA secret (from request body for now, would come from session in production)
-        secret = mfa_verify.totp_code  # This is simplified; in production, store secret in session
-        
-        # For now, we'll just verify the format and enable MFA
         result = await conn.execute(
-            "SELECT id FROM users WHERE id = %s",
+            "SELECT id, mfa_secret FROM users WHERE id = %s",
             (mfa_verify.user_id,)
         )
-        if not await result.fetchone():
+        user = await result.fetchone()
+        if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Generate a random secret for demo
-        random_secret = pyotp.random_base32()
+        secret = user[1]
+        if not secret or not pyotp.TOTP(secret).verify(mfa_verify.totp_code, valid_window=1):
+            raise HTTPException(status_code=400, detail="Invalid MFA code")
         
         await conn.execute(
-            "UPDATE users SET mfa_enabled = true, mfa_secret = %s WHERE id = %s",
-            (random_secret, mfa_verify.user_id)
+            "UPDATE users SET mfa_enabled = TRUE WHERE id = %s",
+            (mfa_verify.user_id,)
         )
         await conn.commit()
         

@@ -6,6 +6,7 @@ import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { apiClient } from '@/lib/api'
+import { useAuthStore } from '@/lib/auth-store'
 
 interface TrustScore {
   score: number
@@ -46,6 +47,7 @@ export default function ContinuousAuthDashboard() {
   const [currentTrustScore, setCurrentTrustScore] = useState(0)
   const [currentRiskScore, setCurrentRiskScore] = useState(0)
   const [loading, setLoading] = useState(true)
+  const user = useAuthStore((state) => state.user)
 
   useEffect(() => {
     loadDashboardData()
@@ -54,37 +56,30 @@ export default function ContinuousAuthDashboard() {
   }, [])
 
   const loadDashboardData = async () => {
-    try {
-      // Get trust and risk score history
-      const scoresRes = await apiClient.get('/api/auth/continuous/scores/history')
-      if (scoresRes.data) {
-        setTrustScoreHistory(scoresRes.data.trust_scores || [])
-        setRiskScoreHistory(scoresRes.data.risk_scores || [])
-
-        // Get latest scores
-        if (scoresRes.data.trust_scores.length > 0) {
-          setCurrentTrustScore(scoresRes.data.trust_scores[0].score)
-        }
-        if (scoresRes.data.risk_scores.length > 0) {
-          setCurrentRiskScore(scoresRes.data.risk_scores[0].score)
-        }
-      }
-
-      // Get active sessions
-      const sessionsRes = await apiClient.get('/api/auth/continuous/sessions')
-      if (sessionsRes.data) {
-        setSessions(sessionsRes.data.sessions || [])
-      }
-
-      // Get trusted devices
-      const devicesRes = await apiClient.get('/api/auth/devices')
-      if (devicesRes.data) {
-        setDevices(devicesRes.data.devices || [])
-      }
-
+    if (!user?.id) {
       setLoading(false)
+      return
+    }
+
+    try {
+      const [trustRes, auditRes] = await Promise.all([
+        apiClient.get(`/trust/score/${user.id}`),
+        apiClient.get(`/audit/logs/${user.id}`),
+      ])
+      const trust = trustRes.data as { score?: number; risk_level?: string }
+      const logs = (auditRes.data?.logs || []) as Array<{ created_at?: string; result?: string }>
+      const now = new Date().toISOString()
+
+      setTrustScoreHistory(trust.score == null ? [] : [{ score: trust.score, timestamp: now }])
+      setCurrentTrustScore(trust.score || 0)
+      setRiskScoreHistory([])
+      setCurrentRiskScore(trust.risk_level === 'HIGH' ? 75 : trust.risk_level === 'MEDIUM' ? 45 : 15)
+      setSessions([])
+      setDevices([])
+      void logs
     } catch (error) {
-      console.error('Failed to load dashboard data:', error)
+      console.error('[v0] Failed to load dashboard data:', error)
+    } finally {
       setLoading(false)
     }
   }

@@ -263,7 +263,7 @@ function AdminPerformancePageContent() {
 
 export default function AdminPerformancePage() {
   return (
-    <ProtectedRoute requiredRole="admin">
+    <ProtectedRoute>
       <AdminPerformancePageContent />
     </ProtectedRoute>
   )

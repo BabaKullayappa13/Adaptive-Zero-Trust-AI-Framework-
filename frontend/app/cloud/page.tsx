@@ -17,8 +17,8 @@ export default function HybridCloudPage() {
     try {
       setLoading(true)
       const [topoRes, cloudsRes] = await Promise.all([
-        apiClient.get('/api/cloud/topology'),
-        apiClient.get('/api/cloud/active')
+        apiClient.get('/cloud/topology'),
+        apiClient.get('/cloud/active')
       ])
       setTopology(topoRes.data)
       setClouds(cloudsRes.data)
@@ -34,7 +34,7 @@ export default function HybridCloudPage() {
 
   const fetchCloudHealth = async (cloudId: number) => {
     try {
-      const response = await apiClient.get(`/api/cloud/${cloudId}/health`)
+      const response = await apiClient.get(`/cloud/${cloudId}/health`)
       setSelectedCloud(response.data)
     } catch (error) {
       console.error('[v0] Failed to fetch cloud health:', error)

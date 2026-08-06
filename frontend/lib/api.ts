@@ -32,9 +32,15 @@ class APIClient {
             const refreshToken = localStorage.getItem('refresh_token')
             if (refreshToken) {
               try {
-                const response = await axios.post('/api/auth/refresh', { refresh_token: refreshToken })
-                const { access_token } = response.data
+                const requestConfig = error.config as typeof error.config & { _retry?: boolean }
+                if (requestConfig?._retry) {
+                  return Promise.reject(error)
+                }
+                requestConfig._retry = true
+                const response = await this.client.post('/auth/refresh', { refresh_token: refreshToken })
+                const { access_token, refresh_token: nextRefreshToken } = response.data
                 localStorage.setItem('access_token', access_token)
+                if (nextRefreshToken) localStorage.setItem('refresh_token', nextRefreshToken)
                 error.config.headers.Authorization = `Bearer ${access_token}`
                 return this.client(error.config)
               } catch (refreshError) {
@@ -53,6 +59,22 @@ class APIClient {
     )
   }
 
+  async get<T = any>(url: string, config?: Parameters<AxiosInstance['get']>[1]) {
+    return this.client.get<T>(url.replace(/^\/api\//, '/'), config)
+  }
+
+  async post<T = any>(url: string, data?: unknown, config?: Parameters<AxiosInstance['post']>[2]) {
+    return this.client.post<T>(url.replace(/^\/api\//, '/'), data, config)
+  }
+
+  async patch<T = any>(url: string, data?: unknown, config?: Parameters<AxiosInstance['patch']>[2]) {
+    return this.client.patch<T>(url.replace(/^\/api\//, '/'), data, config)
+  }
+
+  async delete<T = any>(url: string, config?: Parameters<AxiosInstance['delete']>[1]) {
+    return this.client.delete<T>(url.replace(/^\/api\//, '/'), config)
+  }
+
   // Auth endpoints
   async register(email: string, password: string, name?: string) {
     return this.client.post('/auth/register', { email, password, name })
@@ -64,6 +86,10 @@ class APIClient {
 
   async getCurrentUser() {
     return this.client.get('/auth/me')
+  }
+
+  async logout() {
+    return this.client.post('/auth/logout')
   }
 
   async getDashboardSummary() {
