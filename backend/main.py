@@ -26,6 +26,9 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 import joblib
+from performance_tracker import PerformanceTracker, timing_decorator
+from research_report import generate_comparison_report
+import time
 
 # ============================================================================
 # CONFIGURATION
@@ -73,6 +76,28 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    """Track request response times"""
+    start_time = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start_time) * 1000
+    response.headers["X-Response-Time"] = str(duration_ms)
+    
+    # Record metrics for specific endpoints
+    if request.url.path.startswith("/api/"):
+        try:
+            await performance_tracker.record_metric(
+                metric_type="http_request",
+                endpoint=request.url.path,
+                duration_ms=duration_ms,
+                status_code=response.status_code,
+            )
+        except Exception as e:
+            print(f"[v0] Failed to record request metric: {e}")
+    
     return response
 
 # ============================================================================
@@ -683,15 +708,122 @@ async def dashboard_summary(user_id: str = Depends(get_current_user), conn: Asyn
     }
 
 # ============================================================================
+# ADMIN METRICS ENDPOINTS
+# ============================================================================
+
+async def is_admin(user_id: str = Depends(get_current_user)) -> str:
+    """Simple admin check - in production, use RBAC tables"""
+    admin_ids = os.getenv("ADMIN_USER_IDS", "").split(",")
+    if user_id not in admin_ids:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user_id
+
+@app.get("/api/admin/metrics/summary")
+async def metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)):
+    """Get performance metrics summary"""
+    if not performance_tracker:
+        return {"error": "Performance tracker not initialized"}
+    return await performance_tracker.get_metrics_summary(hours=hours)
+
+@app.get("/api/admin/metrics/auth-stats")
+async def auth_stats(hours: int = 24, admin_id: str = Depends(is_admin)):
+    """Get authentication statistics"""
+    if not performance_tracker:
+        return {"error": "Performance tracker not initialized"}
+    return await performance_tracker.get_auth_stats(hours=hours)
+
+@app.get("/api/admin/metrics/timeseries")
+async def timeseries_data(metric_type: str, hours: int = 24, admin_id: str = Depends(is_admin)):
+    """Get timeseries data for a metric"""
+    if not performance_tracker:
+        return {"error": "Performance tracker not initialized"}
+    return await performance_tracker.get_timeseries_data(metric_type=metric_type, hours=hours)
+
+@app.get("/api/admin/metrics/rps")
+async def requests_per_second(hours: int = 1, admin_id: str = Depends(is_admin), conn: AsyncConnection = Depends(get_db_connection)):
+    """Calculate requests per second"""
+    try:
+        start_time = datetime.utcnow() - timedelta(hours=hours)
+        query = """
+            SELECT 
+                COUNT(*) as total_requests,
+                %s as seconds
+            FROM performance_metrics
+            WHERE created_at >= %s
+        """
+        result = await conn.execute(query, (hours * 3600, start_time))
+        row = await result.fetchone()
+        total_requests, seconds = row
+        rps = total_requests / seconds if seconds > 0 else 0
+        return {"rps": float(rps), "total_requests": total_requests, "period_hours": hours}
+    except Exception as e:
+        print(f"[v0] Failed to calculate RPS: {e}")
+        return {"error": str(e)}
+
+@app.post("/api/admin/metrics/export/csv")
+async def export_csv(metric_type: str = "http_request", hours: int = 24, admin_id: str = Depends(is_admin), conn: AsyncConnection = Depends(get_db_connection)):
+    """Export metrics as CSV"""
+    try:
+        start_time = datetime.utcnow() - timedelta(hours=hours)
+        query = """
+            SELECT user_id, metric_type, endpoint, duration_ms, status_code, created_at
+            FROM performance_metrics
+            WHERE metric_type = %s AND created_at >= %s
+            ORDER BY created_at DESC
+            LIMIT 10000
+        """
+        result = await conn.execute(query, (metric_type, start_time))
+        rows = await result.fetchall()
+        
+        csv_lines = ["user_id,metric_type,endpoint,duration_ms,status_code,created_at"]
+        for row in rows:
+            user_id, mtype, endpoint, duration, status, created = row
+            csv_lines.append(f"{user_id or ''},\"{mtype}\",\"{endpoint or ''}\",{duration},{status or ''},{created.isoformat()}")
+        
+        csv_content = "\n".join(csv_lines)
+        return {"csv": csv_content, "filename": f"metrics_{metric_type}_{datetime.utcnow().isoformat()}.csv"}
+    except Exception as e:
+        print(f"[v0] Failed to export CSV: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/admin/metrics/research-report")
+async def research_report(hours: int = 24, admin_id: str = Depends(is_admin)):
+    """Generate research comparison report against IEEE paper baselines"""
+    if not performance_tracker:
+        return {"error": "Performance tracker not initialized"}
+    
+    try:
+        metrics_summary = await performance_tracker.get_metrics_summary(hours=hours)
+        auth_stats = await performance_tracker.get_auth_stats(hours=hours)
+        
+        report_markdown = generate_comparison_report(metrics_summary, auth_stats)
+        
+        return {
+            "report": report_markdown,
+            "format": "markdown",
+            "timestamp": datetime.utcnow().isoformat(),
+            "period_hours": hours
+        }
+    except Exception as e:
+        print(f"[v0] Failed to generate research report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
 # STARTUP & SHUTDOWN
 # ============================================================================
+
+# Global performance tracker instance
+performance_tracker = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup"""
+    global performance_tracker
     try:
         await init_db()
+        performance_tracker = PerformanceTracker(lambda: psycopg.AsyncConnection.connect(DATABASE_URL))
         print("✓ Database connected")
+        print("✓ Performance tracking initialized")
         print("✓ ML models initialized")
     except Exception as e:
         print(f"✗ Startup error: {e}")

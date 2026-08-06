@@ -67,6 +67,31 @@ class APIClient {
   async healthCheck() {
     return this.client.get('/health')
   }
+
+  // Admin metrics endpoints
+  async getMetricsSummary(hours: number = 24) {
+    return this.client.get(`/admin/metrics/summary?hours=${hours}`)
+  }
+
+  async getAuthStats(hours: number = 24) {
+    return this.client.get(`/admin/metrics/auth-stats?hours=${hours}`)
+  }
+
+  async getTimeseriesData(metricType: string, hours: number = 24) {
+    return this.client.get(`/admin/metrics/timeseries?metric_type=${metricType}&hours=${hours}`)
+  }
+
+  async getRPS(hours: number = 1) {
+    return this.client.get(`/admin/metrics/rps?hours=${hours}`)
+  }
+
+  async exportMetricsCSV(metricType: string = 'http_request', hours: number = 24) {
+    return this.client.get(`/admin/metrics/export/csv?metric_type=${metricType}&hours=${hours}`)
+  }
+
+  async getResearchReport(hours: number = 24) {
+    return this.client.get(`/admin/metrics/research-report?hours=${hours}`)
+  }
 }
 
 export const apiClient = new APIClient()
