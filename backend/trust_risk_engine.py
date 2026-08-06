@@ -1,0 +1,320 @@
+"""
+Trust Score and Risk Score Calculation Engine
+Dynamically calculates trust and risk scores based on multiple factors
+"""
+
+from typing import Dict, List
+from datetime import datetime, timedelta
+import psycopg
+
+
+class TrustRiskEngine:
+    """Calculates dynamic trust and risk scores for continuous authentication"""
+
+    def __init__(self, db_connect_func):
+        self.db_connect = db_connect_func
+
+    async def calculate_trust_score(
+        self,
+        user_id: str,
+        session_id: int,
+        device_id: int,
+        factors: Dict
+    ) -> Dict:
+        """Calculate Trust Score based on multiple factors (0-100)"""
+
+        trust_score = 50  # Baseline
+
+        # Factor 1: Authentication success history (max +20)
+        if factors.get("recent_successful_logins", 0) > 0:
+            trust_score += min(20, factors["recent_successful_logins"] * 5)
+
+        # Factor 2: Device trust (max +20)
+        device_trust = factors.get("device_trust_score", 50)
+        trust_score += (device_trust / 100) * 20
+
+        # Factor 3: Behavioral consistency (max +15)
+        behavior_score = factors.get("behavior_consistency_score", 50)
+        trust_score += (behavior_score / 100) * 15
+
+        # Factor 4: Session activity (max +15)
+        if factors.get("session_duration_minutes", 0) > 5:
+            trust_score += 15
+
+        # Factor 5: Browser trust (max +10)
+        if not factors.get("browser_changed"):
+            trust_score += 10
+
+        # Factor 6: Location consistency (max +10)
+        if not factors.get("location_changed"):
+            trust_score += 10
+
+        # Clamp between 0 and 100
+        trust_score = min(100, max(0, trust_score))
+
+        # Store in history
+        async with await self.db_connect() as conn:
+            contributing_factors = {
+                "authentication_history": factors.get("recent_successful_logins", 0),
+                "device_trust": device_trust,
+                "behavior_consistency": behavior_score,
+                "session_duration": factors.get("session_duration_minutes", 0),
+                "browser_trust": not factors.get("browser_changed"),
+                "location_consistency": not factors.get("location_changed")
+            }
+
+            await conn.execute(
+                """INSERT INTO trust_score_history 
+                   (user_id, session_id, trust_score, contributing_factors, calculated_at)
+                   VALUES (%s, %s, %s, %s, NOW())""",
+                (user_id, session_id, trust_score, psycopg.Json(contributing_factors))
+            )
+
+            await conn.execute(
+                "UPDATE user_sessions SET trust_score = %s WHERE id = %s",
+                (trust_score, session_id)
+            )
+
+            await conn.commit()
+
+        return {
+            "trust_score": trust_score,
+            "contributing_factors": contributing_factors
+        }
+
+    async def calculate_risk_score(
+        self,
+        user_id: str,
+        session_id: int,
+        device_id: int,
+        factors: Dict
+    ) -> Dict:
+        """Calculate Risk Score based on anomalies and threats (0-100)"""
+
+        risk_score = 0
+
+        # Factor 1: New device (max +30)
+        if factors.get("is_new_device"):
+            risk_score += 30
+
+        # Factor 2: New browser (max +15)
+        if factors.get("browser_changed"):
+            risk_score += 15
+
+        # Factor 3: New IP address (max +20)
+        if factors.get("ip_changed"):
+            risk_score += 20
+
+        # Factor 4: New location (max +20)
+        if factors.get("location_changed"):
+            risk_score += 20
+
+        # Factor 5: Abnormal typing behavior (max +15)
+        if factors.get("keystroke_anomaly"):
+            risk_score += 15
+
+        # Factor 6: Unusual navigation (max +10)
+        if factors.get("navigation_anomaly"):
+            risk_score += 10
+
+        # Factor 7: Failed login attempts (max +20)
+        failed_attempts = factors.get("recent_failed_attempts", 0)
+        risk_score += min(20, failed_attempts * 5)
+
+        # Factor 8: Session inactivity (max +15)
+        if factors.get("idle_time_minutes", 0) > 30:
+            risk_score += 15
+
+        # Factor 9: VPN/Proxy detection (max +10)
+        if factors.get("vpn_detected"):
+            risk_score += 10
+
+        # Factor 10: Impossible travel (max +25)
+        if factors.get("impossible_travel_detected"):
+            risk_score += 25
+
+        # Clamp between 0 and 100
+        risk_score = min(100, max(0, risk_score))
+
+        # Determine risk level
+        if risk_score < 25:
+            risk_level = "Low"
+        elif risk_score < 50:
+            risk_level = "Medium"
+        elif risk_score < 75:
+            risk_level = "High"
+        else:
+            risk_level = "Critical"
+
+        # Store in history
+        async with await self.db_connect() as conn:
+            risk_factors = {
+                "new_device": factors.get("is_new_device"),
+                "browser_changed": factors.get("browser_changed"),
+                "ip_changed": factors.get("ip_changed"),
+                "location_changed": factors.get("location_changed"),
+                "keystroke_anomaly": factors.get("keystroke_anomaly"),
+                "navigation_anomaly": factors.get("navigation_anomaly"),
+                "failed_attempts": failed_attempts,
+                "idle_time": factors.get("idle_time_minutes", 0),
+                "vpn_detected": factors.get("vpn_detected"),
+                "impossible_travel": factors.get("impossible_travel_detected")
+            }
+
+            await conn.execute(
+                """INSERT INTO risk_score_history 
+                   (user_id, session_id, risk_score, risk_level, risk_factors, calculated_at)
+                   VALUES (%s, %s, %s, %s, %s, NOW())""",
+                (user_id, session_id, risk_score, risk_level, psycopg.Json(risk_factors))
+            )
+
+            await conn.execute(
+                "UPDATE user_sessions SET risk_score = %s WHERE id = %s",
+                (risk_score, session_id)
+            )
+
+            await conn.commit()
+
+        return {
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "risk_factors": risk_factors
+        }
+
+    async def should_trigger_mfa(
+        self,
+        trust_score: float,
+        risk_score: float,
+        is_new_device: bool,
+        is_new_browser: bool,
+        is_new_location: bool
+    ) -> Dict:
+        """Determine if MFA should be triggered"""
+
+        trigger_mfa = False
+        reason = ""
+
+        # Always trigger for high-risk situations
+        if risk_score > 70:
+            trigger_mfa = True
+            reason = "High risk score"
+        elif trust_score < 40:
+            trigger_mfa = True
+            reason = "Low trust score"
+        elif is_new_device:
+            trigger_mfa = True
+            reason = "New device detected"
+        elif is_new_browser:
+            trigger_mfa = True
+            reason = "New browser detected"
+        elif is_new_location:
+            trigger_mfa = True
+            reason = "New location detected"
+
+        return {
+            "should_trigger_mfa": trigger_mfa,
+            "reason": reason
+        }
+
+    async def evaluate_zero_trust_policy(
+        self,
+        user_id: str,
+        session_id: int,
+        trust_score: float,
+        risk_score: float
+    ) -> Dict:
+        """Evaluate Zero Trust Policy based on scores"""
+
+        policy_decision = None
+        access_level = None
+        action_required = None
+
+        # Policy rules based on Trust Score
+        if trust_score > 80:
+            policy_decision = "Full Access"
+            access_level = "admin"
+        elif trust_score >= 60:
+            policy_decision = "Continue Monitoring"
+            access_level = "user"
+        elif trust_score >= 40:
+            policy_decision = "Require MFA"
+            access_level = "limited"
+            action_required = "mfa_required"
+        elif trust_score >= 20:
+            policy_decision = "Restrict Sensitive Actions"
+            access_level = "restricted"
+            action_required = "restrict_sensitive"
+        else:
+            policy_decision = "Session Ended - Re-authentication Required"
+            access_level = "denied"
+            action_required = "end_session"
+
+        # Risk score can override policy
+        if risk_score > 80:
+            policy_decision = "Session Ended - High Risk Detected"
+            access_level = "denied"
+            action_required = "end_session"
+
+        # Store policy decision
+        async with await self.db_connect() as conn:
+            await conn.execute(
+                """INSERT INTO policy_decisions 
+                   (user_id, session_id, decision, trust_score, risk_score, reason, action_required)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (user_id, session_id, policy_decision, trust_score, risk_score,
+                 "Dynamic policy evaluation", action_required)
+            )
+            await conn.commit()
+
+        return {
+            "policy_decision": policy_decision,
+            "access_level": access_level,
+            "action_required": action_required,
+            "trust_score": trust_score,
+            "risk_score": risk_score
+        }
+
+    async def get_score_history(
+        self,
+        user_id: str,
+        limit: int = 50
+    ) -> Dict:
+        """Get trust and risk score history for user"""
+        async with await self.db_connect() as conn:
+            trust_result = await conn.execute(
+                """SELECT trust_score, calculated_at 
+                   FROM trust_score_history 
+                   WHERE user_id = %s 
+                   ORDER BY calculated_at DESC 
+                   LIMIT %s""",
+                (user_id, limit)
+            )
+            trust_history = await trust_result.fetchall()
+
+            risk_result = await conn.execute(
+                """SELECT risk_score, risk_level, calculated_at 
+                   FROM risk_score_history 
+                   WHERE user_id = %s 
+                   ORDER BY calculated_at DESC 
+                   LIMIT %s""",
+                (user_id, limit)
+            )
+            risk_history = await risk_result.fetchall()
+
+        return {
+            "trust_scores": [
+                {
+                    "score": t[0],
+                    "timestamp": t[1].isoformat()
+                }
+                for t in trust_history
+            ],
+            "risk_scores": [
+                {
+                    "score": r[0],
+                    "level": r[1],
+                    "timestamp": r[2].isoformat()
+                }
+                for r in risk_history
+            ]
+        }
