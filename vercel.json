@@ -1,12 +1,6 @@
 {
-  "experimentalServices": {
-    "backend": {
-      "entrypoint": "backend/main.py",
-      "routePrefix": "/api"
-    },
-    "frontend": {
-      "entrypoint": "frontend/next.config.mjs",
-      "routePrefix": "/"
-    }
-  }
+  "buildCommand": "pnpm --dir frontend build",
+  "devCommand": "pnpm --dir frontend dev",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "framework": "nextjs"
 }
