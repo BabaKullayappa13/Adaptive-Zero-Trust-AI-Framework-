@@ -148,7 +148,10 @@ class UserLogin(BaseModel):
 
 class MFASetup(BaseModel):
     user_id: str
-    enable: bool
+    enable: bool = True
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=20)
 
 class MFAVerify(BaseModel):
     user_id: str
@@ -438,10 +441,10 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
 # ============================================================================
 
 @app.post("/api/auth/refresh", response_model=TokenResponse)
-async def refresh_token(body: dict, conn: AsyncConnection = Depends(get_db_connection)):
-    """Refresh access token using refresh token"""
+async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depends(get_db_connection)):
+    """Refresh access token using a validated refresh token."""
     try:
-        refresh_token_str = body.get("refresh_token")
+        refresh_token_str = body.refresh_token
         if not refresh_token_str:
             raise HTTPException(status_code=400, detail="Refresh token required")
         
@@ -522,12 +525,9 @@ async def forgot_password(email: str, request: Request):
         
         token, user_id = await password_reset_service.generate_reset_token(email)
         
-        # Note: In production, send email with reset link
-        # For now, return token for testing (REMOVE IN PRODUCTION)
-        return {
-            "message": "If email exists, reset link has been sent",
-            "reset_token": token  # REMOVE IN PRODUCTION
-        }
+        # Delivery is intentionally delegated to a configured mail adapter.
+        # Never return a reset token from an authentication endpoint.
+        return {"message": "If email exists, reset link has been sent"}
     except HTTPException:
         raise
     except Exception as e:
@@ -564,8 +564,9 @@ async def reset_password(email: str, token: str, new_password: str):
 # ============================================================================
 
 @app.post("/api/auth/mfa/setup")
-async def setup_mfa(user_id: str, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    """Generate MFA secret for the authenticated user."""
+async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Generate and persist a pending MFA secret for the authenticated user."""
+    user_id = mfa_setup.user_id
     ensure_owner(user_id, current_user_id)
     try:
         # Verify user exists

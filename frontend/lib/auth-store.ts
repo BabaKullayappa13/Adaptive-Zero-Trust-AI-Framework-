@@ -22,7 +22,7 @@ interface AuthState {
   setError: (error: string | null) => void
   register: (email: string, password: string, name?: string) => Promise<void>
   login: (email: string, password: string) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
   setupMFA: (userId: string) => Promise<any>
   verifyMFA: (userId: string, totpCode: string) => Promise<void>
   loadUser: () => Promise<void>
@@ -89,15 +89,17 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  logout: () => {
-    set({ user: null, accessToken: null, refreshToken: null, error: null })
-    if (typeof window !== 'undefined') {
-      try {
+  logout: async () => {
+    try {
+      await apiClient.logout()
+    } catch {
+      // Clear local credentials even when the server is unavailable.
+    } finally {
+      set({ user: null, accessToken: null, refreshToken: null, error: null })
+      if (typeof window !== 'undefined') {
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('user_email')
-      } catch (e) {
-        console.warn('[v0] Failed to clear localStorage on logout')
       }
     }
   },
