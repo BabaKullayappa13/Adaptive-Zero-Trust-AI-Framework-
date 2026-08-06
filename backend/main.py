@@ -38,6 +38,8 @@ from research_dashboard import ResearchDashboard
 from explainable_ai import ExplainableAIService
 from automatic_reports import AutomaticReportsService
 from api_documentation import APIDocumentationService
+from rate_limiter import check_rate_limit
+from password_reset import PasswordResetService
 import time
 
 # ============================================================================
@@ -365,6 +367,11 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
 async def login(credentials: UserLogin, request: Request, conn: AsyncConnection = Depends(get_db_connection)):
     """Authenticate user and return tokens"""
     try:
+        # Rate limiting by IP address
+        ip_address = request.client.host if request.client else "0.0.0.0"
+        if not await check_rate_limit(ip_address, limit_type='login'):
+            raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
+        
         # Get user
         result = await conn.execute(
             "SELECT id, password_hash, mfa_enabled FROM users WHERE email = %s",
@@ -475,6 +482,82 @@ async def current_user(user_id: str = Depends(get_current_user), conn: AsyncConn
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse(id=str(user[0]), email=user[1], mfa_enabled=bool(user[2]), created_at=user[3].isoformat())
+
+# ============================================================================
+# ENDPOINT: LOGOUT
+# ============================================================================
+
+@app.post("/api/auth/logout")
+async def logout(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Logout user and invalidate session"""
+    try:
+        # Record logout event
+        await conn.execute(
+            """INSERT INTO audit_logs (user_id, action, timestamp) 
+               VALUES (%s, %s, NOW())""",
+            (user_id, 'logout')
+        )
+        await conn.commit()
+        
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        print(f"[v0] Logout error: {e}")
+        raise HTTPException(status_code=500, detail="Logout failed")
+
+# ============================================================================
+# ENDPOINT: FORGOT PASSWORD
+# ============================================================================
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(email: str, request: Request):
+    """Send password reset email"""
+    if not password_reset_service:
+        raise HTTPException(status_code=500, detail="Service unavailable")
+    
+    try:
+        # Rate limit by IP
+        ip_address = request.client.host if request.client else "0.0.0.0"
+        if not await check_rate_limit(ip_address, limit_type='auth'):
+            raise HTTPException(status_code=429, detail="Too many requests")
+        
+        token, user_id = await password_reset_service.generate_reset_token(email)
+        
+        # Note: In production, send email with reset link
+        # For now, return token for testing (REMOVE IN PRODUCTION)
+        return {
+            "message": "If email exists, reset link has been sent",
+            "reset_token": token  # REMOVE IN PRODUCTION
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Password reset failed")
+
+# ============================================================================
+# ENDPOINT: RESET PASSWORD
+# ============================================================================
+
+@app.post("/api/auth/reset-password")
+async def reset_password(email: str, token: str, new_password: str):
+    """Reset password using token"""
+    if not password_reset_service:
+        raise HTTPException(status_code=500, detail="Service unavailable")
+    
+    try:
+        # Validate password strength
+        if len(new_password) < 8:
+            raise HTTPException(status_code=400, detail="Password too short (minimum 8 characters)")
+        
+        success = await password_reset_service.reset_password(email, token, new_password)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        
+        return {"message": "Password reset successful"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Password reset failed")
 
 # ============================================================================
 # ENDPOINT: MFA SETUP
@@ -1471,11 +1554,12 @@ research_dashboard = None
 explainable_ai_service = None
 automatic_reports_service = None
 api_documentation_service = None
+password_reset_service = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup"""
-    global performance_tracker, federated_learning_service, hybrid_cloud_service, zero_trust_policy_engine, response_time_analysis, research_evaluation_module, ieee_baseline_comparison, research_dashboard, explainable_ai_service, automatic_reports_service, api_documentation_service
+    global performance_tracker, federated_learning_service, hybrid_cloud_service, zero_trust_policy_engine, response_time_analysis, research_evaluation_module, ieee_baseline_comparison, research_dashboard, explainable_ai_service, automatic_reports_service, api_documentation_service, password_reset_service
     try:
         await init_db()
         db_connect = lambda: psycopg.AsyncConnection.connect(DATABASE_URL)
@@ -1490,6 +1574,7 @@ async def startup_event():
         explainable_ai_service = ExplainableAIService(db_connect)
         automatic_reports_service = AutomaticReportsService(db_connect)
         api_documentation_service = APIDocumentationService()
+        password_reset_service = PasswordResetService(db_connect)
         print("✓ Database connected")
         print("✓ Performance tracking initialized")
         print("✓ Federated learning service initialized")

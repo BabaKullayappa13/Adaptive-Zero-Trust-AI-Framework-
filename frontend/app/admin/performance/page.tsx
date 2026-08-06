@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react'
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { apiClient } from '@/lib/api'
+import { ProtectedRoute } from '@/lib/protected-route'
 
-export default function AdminPerformancePage() {
+function AdminPerformancePageContent() {
   const [hours, setHours] = useState('24')
   const [metricsSummary, setMetricsSummary] = useState<any>(null)
   const [authStats, setAuthStats] = useState<any>(null)
@@ -257,5 +258,13 @@ export default function AdminPerformancePage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function AdminPerformancePage() {
+  return (
+    <ProtectedRoute requiredRole="admin">
+      <AdminPerformancePageContent />
+    </ProtectedRoute>
   )
 }
