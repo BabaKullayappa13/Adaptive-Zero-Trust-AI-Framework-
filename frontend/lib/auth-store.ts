@@ -38,9 +38,15 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user) => set({ user }),
   setTokens: (accessToken, refreshToken) => {
     set({ accessToken, refreshToken })
+    // Tokens should be stored securely - using memory + httpOnly cookies in production
+    // localStorage is vulnerable to XSS attacks; in production, use httpOnly cookies instead
     if (typeof window !== 'undefined') {
-      localStorage.setItem('access_token', accessToken)
-      localStorage.setItem('refresh_token', refreshToken)
+      try {
+        localStorage.setItem('access_token', accessToken)
+        localStorage.setItem('refresh_token', refreshToken)
+      } catch (e) {
+        console.warn('[v0] Failed to store tokens in localStorage')
+      }
     }
   },
   setLoading: (loading) => set({ isLoading: loading }),
@@ -86,9 +92,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     set({ user: null, accessToken: null, refreshToken: null, error: null })
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
-      localStorage.removeItem('user_email')
+      try {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        localStorage.removeItem('user_email')
+      } catch (e) {
+        console.warn('[v0] Failed to clear localStorage on logout')
+      }
     }
   },
 

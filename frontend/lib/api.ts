@@ -21,6 +21,36 @@ class APIClient {
       }
       return config
     })
+
+    // Handle token expiration and refresh
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        if (error.response?.status === 401) {
+          // Token expired - attempt refresh
+          if (typeof window !== 'undefined') {
+            const refreshToken = localStorage.getItem('refresh_token')
+            if (refreshToken) {
+              try {
+                const response = await axios.post('/api/auth/refresh', { refresh_token: refreshToken })
+                const { access_token } = response.data
+                localStorage.setItem('access_token', access_token)
+                error.config.headers.Authorization = `Bearer ${access_token}`
+                return this.client(error.config)
+              } catch (refreshError) {
+                // Refresh failed - redirect to login
+                localStorage.removeItem('access_token')
+                localStorage.removeItem('refresh_token')
+                window.location.href = '/auth/login'
+              }
+            } else {
+              window.location.href = '/auth/login'
+            }
+          }
+        }
+        return Promise.reject(error)
+      }
+    )
   }
 
   // Auth endpoints

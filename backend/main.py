@@ -427,6 +427,41 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
+# ENDPOINT: AUTHENTICATION - REFRESH TOKEN
+# ============================================================================
+
+@app.post("/api/auth/refresh", response_model=TokenResponse)
+async def refresh_token(body: dict, conn: AsyncConnection = Depends(get_db_connection)):
+    """Refresh access token using refresh token"""
+    try:
+        refresh_token_str = body.get("refresh_token")
+        if not refresh_token_str:
+            raise HTTPException(status_code=400, detail="Refresh token required")
+        
+        user_id = verify_token(refresh_token_str, expected_type="refresh")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        
+        # Verify user still exists
+        result = await conn.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+        if not await result.fetchone():
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        # Generate new tokens
+        new_access_token = create_access_token(user_id)
+        new_refresh_token = create_refresh_token(user_id)
+        
+        return TokenResponse(
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            expires_in=TOKEN_EXPIRE_MINUTES * 60
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
 # ENDPOINT: CURRENT USER
 # ============================================================================
 
