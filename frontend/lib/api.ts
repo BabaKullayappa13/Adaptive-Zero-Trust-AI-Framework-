@@ -194,6 +194,14 @@ class APIClient {
   async getErDiagram() {
     return this.client.get('/documentation/er-diagram')
   }
+
+  async getDeploymentGuide() {
+    return this.client.get('/documentation/deployment')
+  }
+
+  async getApiReference() {
+    return this.client.get('/documentation/reference')
+  }
 }
 
 export const apiClient = new APIClient()

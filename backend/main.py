@@ -1664,6 +1664,18 @@ async def phase4_er_diagram(admin_id: str = Depends(is_admin)):
         return {"error": "API documentation service not initialized"}
     return api_documentation_service.generate_entity_relationship_diagram()
 
+@app.get("/api/documentation/deployment")
+async def phase4_deployment(admin_id: str = Depends(is_admin)):
+    if not api_documentation_service:
+        return {"error": "API documentation service not initialized"}
+    return api_documentation_service.generate_deployment_guide()
+
+@app.get("/api/documentation/reference")
+async def phase4_reference(admin_id: str = Depends(is_admin)):
+    if not api_documentation_service:
+        return {"error": "API documentation service not initialized"}
+    return api_documentation_service.generate_api_reference()
+
 # ============================================================================
 # STARTUP & SHUTDOWN
 # ============================================================================
