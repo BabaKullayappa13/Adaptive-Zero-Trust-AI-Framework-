@@ -1,6 +1,11 @@
 import json
+import os
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+
+# Base URLs are environment-driven so the published spec matches the deployment.
+DEV_SERVER_URL = os.getenv("API_DEV_URL", "http://localhost:8000")
+PROD_SERVER_URL = os.getenv("API_PUBLIC_URL", "")
 
 class APIDocumentationService:
     """Generate OpenAPI/Swagger documentation and system diagrams"""
@@ -28,14 +33,16 @@ class APIDocumentationService:
                 }
             },
             "servers": [
-                {
-                    "url": "http://localhost:8000",
-                    "description": "Development server"
-                },
-                {
-                    "url": "https://api.example.com",
-                    "description": "Production server"
-                }
+                server for server in [
+                    {
+                        "url": DEV_SERVER_URL,
+                        "description": "Development server"
+                    },
+                    {
+                        "url": PROD_SERVER_URL,
+                        "description": "Production server"
+                    } if PROD_SERVER_URL else None
+                ] if server
             ],
             "paths": self._generate_paths(),
             "components": self._generate_components()

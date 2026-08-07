@@ -57,6 +57,7 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
+MFA_ISSUER = os.getenv("MFA_ISSUER", "Zero Trust AI")
 security = HTTPBearer(auto_error=False)
 
 # Security
@@ -625,7 +626,7 @@ async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_curr
         
         return {
             "secret": secret,
-            "qr_code_url": totp.provisioning_uri(user_id, issuer_name="Zero Trust AI"),
+            "qr_code_url": totp.provisioning_uri(user_id, issuer_name=MFA_ISSUER),
             "manual_entry_key": secret
         }
     except HTTPException:
