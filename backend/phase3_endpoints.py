@@ -7,7 +7,7 @@ PHASE3_ENDPOINTS = """
 # RESEARCH EVALUATION ENDPOINTS (Feature 4)
 # ============================================================================
 
-@app.post("/api/research/authentication-metrics")
+@app.post("/research/authentication-metrics")
 async def record_auth_metrics(true_positives: int, true_negatives: int,
                              false_positives: int, false_negatives: int,
                              admin_id: str = Depends(is_admin)):
@@ -20,7 +20,7 @@ async def record_auth_metrics(true_positives: int, true_negatives: int,
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/authentication-metrics/history")
+@app.get("/research/authentication-metrics/history")
 async def get_auth_metrics_history(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get authentication metrics history\"\"\"
     try:
@@ -29,7 +29,7 @@ async def get_auth_metrics_history(days: int = 30, admin_id: str = Depends(is_ad
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/research/metrics")
+@app.post("/research/metrics")
 async def record_research_metric(metric_name: str, metric_value: float,
                                 metric_type: str, evaluation_period: str,
                                 admin_id: str = Depends(is_admin)):
@@ -42,7 +42,7 @@ async def record_research_metric(metric_name: str, metric_value: float,
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/metrics/latest")
+@app.get("/research/metrics/latest")
 async def get_latest_auth_metrics(admin_id: str = Depends(is_admin)):
     \"\"\"Get latest authentication metrics\"\"\"
     try:
@@ -51,7 +51,7 @@ async def get_latest_auth_metrics(admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/threats/summary")
+@app.get("/research/threats/summary")
 async def get_threat_summary(admin_id: str = Depends(is_admin)):
     \"\"\"Get threat intelligence summary\"\"\"
     try:
@@ -64,7 +64,7 @@ async def get_threat_summary(admin_id: str = Depends(is_admin)):
 # IEEE BASELINE COMPARISON ENDPOINTS (Feature 6)
 # ============================================================================
 
-@app.post("/api/research/baseline-comparison")
+@app.post("/research/baseline-comparison")
 async def record_baseline_comparison(metric_name: str, our_value: float,
                                     gap_analysis: Optional[str] = None,
                                     admin_id: str = Depends(is_admin)):
@@ -77,7 +77,7 @@ async def record_baseline_comparison(metric_name: str, our_value: float,
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/baseline-comparison/report")
+@app.get("/research/baseline-comparison/report")
 async def get_baseline_report(admin_id: str = Depends(is_admin)):
     \"\"\"Get comprehensive baseline comparison report\"\"\"
     try:
@@ -86,7 +86,7 @@ async def get_baseline_report(admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/baseline-comparison/{metric_name}")
+@app.get("/research/baseline-comparison/{metric_name}")
 async def get_metric_comparison(metric_name: str, admin_id: str = Depends(is_admin)):
     \"\"\"Get comparison for specific metric\"\"\"
     try:
@@ -95,7 +95,7 @@ async def get_metric_comparison(metric_name: str, admin_id: str = Depends(is_adm
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/baseline-standards")
+@app.get("/research/baseline-standards")
 async def get_baseline_standards(admin_id: str = Depends(is_admin)):
     \"\"\"Get IEEE baseline standards\"\"\"
     try:
@@ -104,7 +104,7 @@ async def get_baseline_standards(admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/compliance-score")
+@app.get("/research/compliance-score")
 async def get_compliance_score(admin_id: str = Depends(is_admin)):
     \"\"\"Get IEEE compliance score\"\"\"
     try:
@@ -117,7 +117,7 @@ async def get_compliance_score(admin_id: str = Depends(is_admin)):
 # RESEARCH DASHBOARD ENDPOINTS (Feature 8)
 # ============================================================================
 
-@app.get("/api/research/dashboard/summary")
+@app.get("/research/dashboard/summary")
 async def get_dashboard_summary(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get complete dashboard summary\"\"\"
     try:
@@ -126,7 +126,7 @@ async def get_dashboard_summary(days: int = 30, admin_id: str = Depends(is_admin
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/auth-trends")
+@app.get("/research/dashboard/auth-trends")
 async def get_auth_trends(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get authentication trends\"\"\"
     try:
@@ -135,7 +135,7 @@ async def get_auth_trends(days: int = 30, admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/threat-analytics")
+@app.get("/research/dashboard/threat-analytics")
 async def get_threat_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get threat analytics\"\"\"
     try:
@@ -144,7 +144,7 @@ async def get_threat_analytics(days: int = 30, admin_id: str = Depends(is_admin)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/user-behavior")
+@app.get("/research/dashboard/user-behavior")
 async def get_user_behavior(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get user behavior analysis\"\"\"
     try:
@@ -153,7 +153,7 @@ async def get_user_behavior(days: int = 30, admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/device-analytics")
+@app.get("/research/dashboard/device-analytics")
 async def get_device_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get device analytics\"\"\"
     try:
@@ -162,7 +162,7 @@ async def get_device_analytics(days: int = 30, admin_id: str = Depends(is_admin)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/geolocation-heatmap")
+@app.get("/research/dashboard/geolocation-heatmap")
 async def get_geo_heatmap(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get geolocation heatmap\"\"\"
     try:
@@ -171,7 +171,7 @@ async def get_geo_heatmap(days: int = 30, admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/risk-distribution")
+@app.get("/research/dashboard/risk-distribution")
 async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin)):
     \"\"\"Get risk distribution\"\"\"
     try:
@@ -180,7 +180,7 @@ async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/export")
+@app.get("/research/dashboard/export")
 async def export_dashboard(days: int = 30, format_type: str = 'json',
                           admin_id: str = Depends(is_admin)):
     \"\"\"Export dashboard data\"\"\"

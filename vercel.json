@@ -1,6 +1,12 @@
 {
-  "buildCommand": "pnpm --dir frontend build",
-  "devCommand": "pnpm --dir frontend dev",
-  "installCommand": "pnpm install --frozen-lockfile",
-  "framework": "nextjs"
+  "experimentalServices": {
+    "frontend": {
+      "entrypoint": "frontend",
+      "routePrefix": "/"
+    },
+    "backend": {
+      "entrypoint": "backend/main.py",
+      "routePrefix": "/api"
+    }
+  }
 }

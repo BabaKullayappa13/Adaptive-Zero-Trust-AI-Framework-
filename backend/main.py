@@ -46,6 +46,16 @@ import time
 # CONFIGURATION
 # ============================================================================
 
+# Load backend/.env for local development. In production (Vercel) the platform
+# injects real environment variables and no .env file is present, so this is a
+# no-op there. Existing environment variables always win over the file.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=False)
+except ImportError:
+    pass
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required")
@@ -99,8 +109,9 @@ async def request_timing_middleware(request: Request, call_next):
     duration_ms = (time.time() - start_time) * 1000
     response.headers["X-Response-Time"] = str(duration_ms)
     
-    # Record metrics for specific endpoints
-    if request.url.path.startswith("/api/"):
+    # Record metrics for API traffic. Vercel strips the `/api` routePrefix before
+    # forwarding, so paths arrive here without it; `/health` is excluded as noise.
+    if request.url.path != "/health":
         try:
             await performance_tracker.record_metric(
                 metric_type="http_request",
@@ -343,7 +354,6 @@ class TrustScoreCalculator:
 # ============================================================================
 
 @app.get("/health")
-@app.get("/api/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "ok", "service": "zero-trust-backend"}
@@ -352,7 +362,7 @@ async def health_check():
 # ENDPOINT: AUTHENTICATION - REGISTER
 # ============================================================================
 
-@app.post("/api/auth/register", response_model=UserResponse)
+@app.post("/auth/register", response_model=UserResponse)
 async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db_connection)):
     """Register a new user"""
     try:
@@ -392,7 +402,7 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
 # ENDPOINT: AUTHENTICATION - LOGIN
 # ============================================================================
 
-@app.post("/api/auth/login", response_model=TokenResponse)
+@app.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin, request: Request, conn: AsyncConnection = Depends(get_db_connection)):
     """Authenticate user and return tokens"""
     try:
@@ -471,7 +481,7 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
 # ENDPOINT: AUTHENTICATION - REFRESH TOKEN
 # ============================================================================
 
-@app.post("/api/auth/refresh", response_model=TokenResponse)
+@app.post("/auth/refresh", response_model=TokenResponse)
 async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depends(get_db_connection)):
     """Refresh access token using a validated refresh token."""
     try:
@@ -516,7 +526,7 @@ async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depen
 # ENDPOINT: CURRENT USER
 # ============================================================================
 
-@app.get("/api/auth/me", response_model=UserResponse)
+@app.get("/auth/me", response_model=UserResponse)
 async def current_user(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     result = await conn.execute(
         "SELECT id, email, mfa_enabled, created_at FROM users WHERE id = %s",
@@ -531,7 +541,7 @@ async def current_user(user_id: str = Depends(get_current_user), conn: AsyncConn
 # ENDPOINT: LOGOUT
 # ============================================================================
 
-@app.post("/api/auth/logout")
+@app.post("/auth/logout")
 async def logout(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Logout user and invalidate session"""
     try:
@@ -556,7 +566,7 @@ async def logout(user_id: str = Depends(get_current_user), conn: AsyncConnection
 # ENDPOINT: FORGOT PASSWORD
 # ============================================================================
 
-@app.post("/api/auth/forgot-password")
+@app.post("/auth/forgot-password")
 async def forgot_password(body: ForgotPasswordRequest, request: Request):
     """Send password reset email"""
     if not password_reset_service:
@@ -582,7 +592,7 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
 # ENDPOINT: RESET PASSWORD
 # ============================================================================
 
-@app.post("/api/auth/reset-password")
+@app.post("/auth/reset-password")
 async def reset_password(body: ResetPasswordRequest):
     """Reset password using token"""
     if not password_reset_service:
@@ -604,7 +614,7 @@ async def reset_password(body: ResetPasswordRequest):
 # ENDPOINT: MFA SETUP
 # ============================================================================
 
-@app.post("/api/auth/mfa/setup")
+@app.post("/auth/mfa/setup")
 async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Generate and persist a pending MFA secret for the authenticated user."""
     user_id = mfa_setup.user_id
@@ -638,7 +648,7 @@ async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_curr
 # ENDPOINT: MFA VERIFY & ENABLE
 # ============================================================================
 
-@app.post("/api/auth/mfa/verify")
+@app.post("/auth/mfa/verify")
 async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Verify TOTP code and enable MFA."""
     ensure_owner(mfa_verify.user_id, current_user_id)
@@ -671,7 +681,7 @@ async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_c
 # ENDPOINT: TRUST SCORE CALCULATION
 # ============================================================================
 
-@app.get("/api/trust/score/{user_id}", response_model=TrustScoreResponse)
+@app.get("/trust/score/{user_id}", response_model=TrustScoreResponse)
 async def get_trust_score(user_id: str, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Calculate and return current trust score for user."""
     ensure_owner(user_id, current_user_id)
@@ -727,7 +737,7 @@ async def get_trust_score(user_id: str, current_user_id: str = Depends(get_curre
 # ENDPOINT: RISK DETECTION
 # ============================================================================
 
-@app.post("/api/risk/detect")
+@app.post("/risk/detect")
 async def detect_risk(
     user_id: str,
     session_data: Dict[str, Any],
@@ -813,7 +823,7 @@ async def detect_risk(
 # ENDPOINT: AUDIT LOGS
 # ============================================================================
 
-@app.get("/api/audit/logs/{user_id}")
+@app.get("/audit/logs/{user_id}")
 async def get_audit_logs(user_id: str, limit: int = 50, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Get audit logs for the authenticated user."""
     ensure_owner(user_id, current_user_id)
@@ -852,7 +862,7 @@ async def get_audit_logs(user_id: str, limit: int = 50, current_user_id: str = D
 # DASHBOARD SUMMARY AND SIMULATION STATUS
 # ============================================================================
 
-@app.get("/api/dashboard/summary")
+@app.get("/dashboard/summary")
 async def dashboard_summary(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Return persisted telemetry plus explicitly labeled simulation status."""
     score_result = await conn.execute(
@@ -891,28 +901,28 @@ async def is_admin(user_id: str = Depends(get_current_user)) -> str:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user_id
 
-@app.get("/api/admin/metrics/summary")
+@app.get("/admin/metrics/summary")
 async def metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)):
     """Get performance metrics summary"""
     if not performance_tracker:
         return {"error": "Performance tracker not initialized"}
     return await performance_tracker.get_metrics_summary(hours=hours)
 
-@app.get("/api/admin/metrics/auth-stats")
+@app.get("/admin/metrics/auth-stats")
 async def auth_stats(hours: int = 24, admin_id: str = Depends(is_admin)):
     """Get authentication statistics"""
     if not performance_tracker:
         return {"error": "Performance tracker not initialized"}
     return await performance_tracker.get_auth_stats(hours=hours)
 
-@app.get("/api/admin/metrics/timeseries")
+@app.get("/admin/metrics/timeseries")
 async def timeseries_data(metric_type: str, hours: int = 24, admin_id: str = Depends(is_admin)):
     """Get timeseries data for a metric"""
     if not performance_tracker:
         return {"error": "Performance tracker not initialized"}
     return await performance_tracker.get_timeseries_data(metric_type=metric_type, hours=hours)
 
-@app.get("/api/admin/metrics/rps")
+@app.get("/admin/metrics/rps")
 async def requests_per_second(hours: int = 1, admin_id: str = Depends(is_admin), conn: AsyncConnection = Depends(get_db_connection)):
     """Calculate requests per second"""
     try:
@@ -933,7 +943,7 @@ async def requests_per_second(hours: int = 1, admin_id: str = Depends(is_admin),
         print(f"[v0] Failed to calculate RPS: {e}")
         return {"error": str(e)}
 
-@app.post("/api/admin/metrics/export/csv")
+@app.post("/admin/metrics/export/csv")
 async def export_csv(metric_type: str = "http_request", hours: int = 24, admin_id: str = Depends(is_admin), conn: AsyncConnection = Depends(get_db_connection)):
     """Export metrics as CSV"""
     try:
@@ -959,7 +969,7 @@ async def export_csv(metric_type: str = "http_request", hours: int = 24, admin_i
         print(f"[v0] Failed to export CSV: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/admin/metrics/research-report")
+@app.get("/admin/metrics/research-report")
 async def research_report(hours: int = 24, admin_id: str = Depends(is_admin)):
     """Generate research comparison report against IEEE paper baselines"""
     if not performance_tracker:
@@ -985,7 +995,7 @@ async def research_report(hours: int = 24, admin_id: str = Depends(is_admin)):
 # FEDERATED LEARNING ENDPOINTS (Feature 1)
 # ============================================================================
 
-@app.post("/api/federated/rounds")
+@app.post("/federated/rounds")
 async def create_federated_round(admin_id: str = Depends(is_admin)):
     """Create a new federated learning round"""
     if not federated_learning_service:
@@ -1008,7 +1018,7 @@ async def create_federated_round(admin_id: str = Depends(is_admin)):
         print(f"[v0] Failed to create federated round: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/federated/rounds/{round_id}/participants")
+@app.post("/federated/rounds/{round_id}/participants")
 async def register_federated_participant(round_id: int, org_id: int, admin_id: str = Depends(is_admin)):
     """Register organization as participant"""
     if not federated_learning_service:
@@ -1021,7 +1031,7 @@ async def register_federated_participant(round_id: int, org_id: int, admin_id: s
         print(f"[v0] Failed to register participant: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/federated/participants/{participant_id}/submit")
+@app.post("/federated/participants/{participant_id}/submit")
 async def submit_local_model(participant_id: int, accuracy: float, loss: float, 
                              data_samples: int, admin_id: str = Depends(is_admin)):
     """Submit local model training results"""
@@ -1037,7 +1047,7 @@ async def submit_local_model(participant_id: int, accuracy: float, loss: float,
         print(f"[v0] Failed to submit local model: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/federated/rounds/{round_id}/aggregate")
+@app.post("/federated/rounds/{round_id}/aggregate")
 async def aggregate_federated_models(round_id: int, admin_id: str = Depends(is_admin)):
     """Aggregate models using FedAvg"""
     if not federated_learning_service:
@@ -1050,7 +1060,7 @@ async def aggregate_federated_models(round_id: int, admin_id: str = Depends(is_a
         print(f"[v0] Failed to aggregate models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/federated/rounds/{round_id}/status")
+@app.get("/federated/rounds/{round_id}/status")
 async def get_federated_round_status(round_id: int, admin_id: str = Depends(is_admin)):
     """Get federated round status"""
     if not federated_learning_service:
@@ -1063,7 +1073,7 @@ async def get_federated_round_status(round_id: int, admin_id: str = Depends(is_a
         print(f"[v0] Failed to get round status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/federated/rounds/history")
+@app.get("/federated/rounds/history")
 async def get_federated_history(limit: int = 10, admin_id: str = Depends(is_admin)):
     """Get federated round history"""
     if not federated_learning_service:
@@ -1076,7 +1086,7 @@ async def get_federated_history(limit: int = 10, admin_id: str = Depends(is_admi
         print(f"[v0] Failed to get history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/federated/models")
+@app.get("/federated/models")
 async def get_federated_models(limit: int = 10, admin_id: str = Depends(is_admin)):
     """Get federated model versions"""
     if not federated_learning_service:
@@ -1093,7 +1103,7 @@ async def get_federated_models(limit: int = 10, admin_id: str = Depends(is_admin
 # HYBRID CLOUD ENDPOINTS (Feature 2)
 # ============================================================================
 
-@app.post("/api/cloud/register")
+@app.post("/cloud/register")
 async def register_cloud_provider(name: str, cloud_type: str, provider: str, 
                                   region: str, endpoint: str, api_key: str,
                                   is_primary: bool = False, admin_id: str = Depends(is_admin)):
@@ -1110,7 +1120,7 @@ async def register_cloud_provider(name: str, cloud_type: str, provider: str,
         print(f"[v0] Failed to register cloud provider: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/cloud/active")
+@app.get("/cloud/active")
 async def get_active_clouds(cloud_type: Optional[str] = None, admin_id: str = Depends(is_admin)):
     """Get active cloud configurations"""
     if not hybrid_cloud_service:
@@ -1123,7 +1133,7 @@ async def get_active_clouds(cloud_type: Optional[str] = None, admin_id: str = De
         print(f"[v0] Failed to get active clouds: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/cloud/topology")
+@app.get("/cloud/topology")
 async def get_cloud_topology(admin_id: str = Depends(is_admin)):
     """Get overall cloud topology"""
     if not hybrid_cloud_service:
@@ -1136,7 +1146,7 @@ async def get_cloud_topology(admin_id: str = Depends(is_admin)):
         print(f"[v0] Failed to get topology: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/cloud/{cloud_id}/health")
+@app.get("/cloud/{cloud_id}/health")
 async def get_cloud_health(cloud_id: int, admin_id: str = Depends(is_admin)):
     """Get cloud health status"""
     if not hybrid_cloud_service:
@@ -1149,7 +1159,7 @@ async def get_cloud_health(cloud_id: int, admin_id: str = Depends(is_admin)):
         print(f"[v0] Failed to get cloud health: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/cloud/{cloud_id}/health-check")
+@app.post("/cloud/{cloud_id}/health-check")
 async def record_cloud_health(cloud_id: int, latency_ms: float, availability_percent: float,
                              throughput_mbps: float, error_rate: float,
                              admin_id: str = Depends(is_admin)):
@@ -1166,7 +1176,7 @@ async def record_cloud_health(cloud_id: int, latency_ms: float, availability_per
         print(f"[v0] Failed to record health: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/cloud/{cloud_type}/failover")
+@app.post("/cloud/{cloud_type}/failover")
 async def trigger_cloud_failover(cloud_type: str, admin_id: str = Depends(is_admin)):
     """Simulate failover to backup cloud"""
     if not hybrid_cloud_service:
@@ -1179,7 +1189,7 @@ async def trigger_cloud_failover(cloud_type: str, admin_id: str = Depends(is_adm
         print(f"[v0] Failed to trigger failover: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/cloud/sync-history")
+@app.get("/cloud/sync-history")
 async def get_cloud_sync_history(cloud_id: Optional[int] = None, hours: int = 24,
                                 admin_id: str = Depends(is_admin)):
     """Get cloud sync history"""
@@ -1197,7 +1207,7 @@ async def get_cloud_sync_history(cloud_id: Optional[int] = None, hours: int = 24
 # ZERO TRUST POLICY ENDPOINTS (Feature 3)
 # ============================================================================
 
-@app.post("/api/policies")
+@app.post("/policies")
 async def create_zero_trust_policy(name: str, description: str, policy_type: str,
                                    priority: int, admin_id: str = Depends(is_admin)):
     """Create a new zero trust policy"""
@@ -1213,7 +1223,7 @@ async def create_zero_trust_policy(name: str, description: str, policy_type: str
         print(f"[v0] Failed to create policy: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/policies/{policy_id}/rules")
+@app.post("/policies/{policy_id}/rules")
 async def add_policy_rule(policy_id: int, rule_name: str, condition_type: str,
                          condition_value: str, action: str, severity: str,
                          admin_id: str = Depends(is_admin)):
@@ -1230,7 +1240,7 @@ async def add_policy_rule(policy_id: int, rule_name: str, condition_type: str,
         print(f"[v0] Failed to add rule: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/policies/{policy_id}/evaluate")
+@app.post("/policies/{policy_id}/evaluate")
 async def evaluate_policy(policy_id: int, device_fingerprint: str, location: str,
                          ip_address: str, behavioral_score: float,
                          user_id: str = Depends(get_current_user)):
@@ -1247,7 +1257,7 @@ async def evaluate_policy(policy_id: int, device_fingerprint: str, location: str
         print(f"[v0] Failed to evaluate policy: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/policies/{policy_id}")
+@app.get("/policies/{policy_id}")
 async def get_policy_details(policy_id: int, admin_id: str = Depends(is_admin)):
     """Get policy details with rules"""
     if not zero_trust_policy_engine:
@@ -1260,7 +1270,7 @@ async def get_policy_details(policy_id: int, admin_id: str = Depends(is_admin)):
         print(f"[v0] Failed to get policy: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/policies/active")
+@app.get("/policies/active")
 async def get_active_policies(admin_id: str = Depends(is_admin)):
     """Get all active policies"""
     if not zero_trust_policy_engine:
@@ -1273,7 +1283,7 @@ async def get_active_policies(admin_id: str = Depends(is_admin)):
         print(f"[v0] Failed to get policies: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/sessions/risk-assessment")
+@app.post("/sessions/risk-assessment")
 async def assess_session_risk(device_id: Optional[int] = None,
                              session_duration_hours: float = 0,
                              request_count: int = 0,
@@ -1295,7 +1305,7 @@ async def assess_session_risk(device_id: Optional[int] = None,
 # RESPONSE TIME ANALYSIS ENDPOINTS (Feature 5)
 # ============================================================================
 
-@app.post("/api/metrics/record")
+@app.post("/metrics/record")
 async def record_operation_time(operation_type: str, duration_ms: float,
                                success: bool = True,
                                user_id: str = Depends(get_current_user)):
@@ -1312,7 +1322,7 @@ async def record_operation_time(operation_type: str, duration_ms: float,
         print(f"[v0] Failed to record metric: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/metrics/operation/{operation_type}")
+@app.get("/metrics/operation/{operation_type}")
 async def get_operation_stats(operation_type: str, hours: int = 24,
                              admin_id: str = Depends(is_admin)):
     """Get statistics for an operation type"""
@@ -1326,7 +1336,7 @@ async def get_operation_stats(operation_type: str, hours: int = 24,
         print(f"[v0] Failed to get stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/metrics/summary")
+@app.get("/metrics/summary")
 async def get_metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)):
     """Get summary for all operations"""
     if not response_time_analysis:
@@ -1339,7 +1349,7 @@ async def get_metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)
         print(f"[v0] Failed to get summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/metrics/hourly")
+@app.get("/metrics/hourly")
 async def get_hourly_metrics(operation_type: Optional[str] = None, days: int = 7,
                             admin_id: str = Depends(is_admin)):
     """Get hourly aggregated metrics"""
@@ -1353,7 +1363,7 @@ async def get_hourly_metrics(operation_type: Optional[str] = None, days: int = 7
         print(f"[v0] Failed to get hourly metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/metrics/daily")
+@app.get("/metrics/daily")
 async def get_daily_metrics(operation_type: Optional[str] = None, days: int = 30,
                            admin_id: str = Depends(is_admin)):
     """Get daily aggregated metrics"""
@@ -1367,7 +1377,7 @@ async def get_daily_metrics(operation_type: Optional[str] = None, days: int = 30
         print(f"[v0] Failed to get daily metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/metrics/weekly")
+@app.get("/metrics/weekly")
 async def get_weekly_metrics(days: int = 90, admin_id: str = Depends(is_admin)):
     """Get weekly aggregated metrics"""
     if not response_time_analysis:
@@ -1380,7 +1390,7 @@ async def get_weekly_metrics(days: int = 90, admin_id: str = Depends(is_admin)):
         print(f"[v0] Failed to get weekly metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/metrics/slowest")
+@app.get("/metrics/slowest")
 async def get_slowest_operations(limit: int = 20, admin_id: str = Depends(is_admin)):
     """Get slowest operations"""
     if not response_time_analysis:
@@ -1393,7 +1403,7 @@ async def get_slowest_operations(limit: int = 20, admin_id: str = Depends(is_adm
         print(f"[v0] Failed to get slowest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/metrics/trend/{operation_type}")
+@app.get("/metrics/trend/{operation_type}")
 async def get_performance_trend(operation_type: str, hours: int = 48,
                                admin_id: str = Depends(is_admin)):
     """Get performance trend over time"""
@@ -1411,7 +1421,7 @@ async def get_performance_trend(operation_type: str, hours: int = 48,
 # RESEARCH EVALUATION ENDPOINTS (Feature 4)
 # ============================================================================
 
-@app.post("/api/research/authentication-metrics")
+@app.post("/research/authentication-metrics")
 async def record_auth_metrics(true_positives: int, true_negatives: int,
                              false_positives: int, false_negatives: int,
                              admin_id: str = Depends(is_admin)):
@@ -1427,7 +1437,7 @@ async def record_auth_metrics(true_positives: int, true_negatives: int,
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/authentication-metrics/history")
+@app.get("/research/authentication-metrics/history")
 async def get_auth_metrics_history(days: int = 30, admin_id: str = Depends(is_admin)):
     """Get authentication metrics history"""
     if not research_evaluation_module:
@@ -1439,7 +1449,7 @@ async def get_auth_metrics_history(days: int = 30, admin_id: str = Depends(is_ad
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/metrics/latest")
+@app.get("/research/metrics/latest")
 async def get_latest_auth_metrics(admin_id: str = Depends(is_admin)):
     """Get latest authentication metrics"""
     if not research_evaluation_module:
@@ -1451,7 +1461,7 @@ async def get_latest_auth_metrics(admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/threats/summary")
+@app.get("/research/threats/summary")
 async def get_threat_summary(admin_id: str = Depends(is_admin)):
     """Get threat intelligence summary"""
     if not research_evaluation_module:
@@ -1467,7 +1477,7 @@ async def get_threat_summary(admin_id: str = Depends(is_admin)):
 # IEEE BASELINE COMPARISON ENDPOINTS (Feature 6)
 # ============================================================================
 
-@app.post("/api/research/baseline-comparison")
+@app.post("/research/baseline-comparison")
 async def record_baseline_comparison(metric_name: str, our_value: float,
                                     gap_analysis: Optional[str] = None,
                                     admin_id: str = Depends(is_admin)):
@@ -1483,7 +1493,7 @@ async def record_baseline_comparison(metric_name: str, our_value: float,
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/baseline-comparison/report")
+@app.get("/research/baseline-comparison/report")
 async def get_baseline_report(admin_id: str = Depends(is_admin)):
     """Get comprehensive baseline comparison report"""
     if not ieee_baseline_comparison:
@@ -1495,7 +1505,7 @@ async def get_baseline_report(admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/compliance-score")
+@app.get("/research/compliance-score")
 async def get_compliance_score(admin_id: str = Depends(is_admin)):
     """Get IEEE compliance score"""
     if not ieee_baseline_comparison:
@@ -1511,7 +1521,7 @@ async def get_compliance_score(admin_id: str = Depends(is_admin)):
 # RESEARCH DASHBOARD ENDPOINTS (Feature 8)
 # ============================================================================
 
-@app.get("/api/research/dashboard/summary")
+@app.get("/research/dashboard/summary")
 async def get_dashboard_summary(days: int = 30, admin_id: str = Depends(is_admin)):
     """Get complete dashboard summary"""
     if not research_dashboard:
@@ -1523,7 +1533,7 @@ async def get_dashboard_summary(days: int = 30, admin_id: str = Depends(is_admin
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/auth-trends")
+@app.get("/research/dashboard/auth-trends")
 async def get_auth_trends(days: int = 30, admin_id: str = Depends(is_admin)):
     """Get authentication trends"""
     if not research_dashboard:
@@ -1535,7 +1545,7 @@ async def get_auth_trends(days: int = 30, admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/threat-analytics")
+@app.get("/research/dashboard/threat-analytics")
 async def get_threat_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
     """Get threat analytics"""
     if not research_dashboard:
@@ -1547,7 +1557,7 @@ async def get_threat_analytics(days: int = 30, admin_id: str = Depends(is_admin)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/user-behavior")
+@app.get("/research/dashboard/user-behavior")
 async def get_user_behavior(days: int = 30, admin_id: str = Depends(is_admin)):
     """Get user behavior analysis"""
     if not research_dashboard:
@@ -1559,7 +1569,7 @@ async def get_user_behavior(days: int = 30, admin_id: str = Depends(is_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/device-analytics")
+@app.get("/research/dashboard/device-analytics")
 async def get_device_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
     """Get device analytics"""
     if not research_dashboard:
@@ -1571,7 +1581,7 @@ async def get_device_analytics(days: int = 30, admin_id: str = Depends(is_admin)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/research/dashboard/risk-distribution")
+@app.get("/research/dashboard/risk-distribution")
 async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin)):
     """Get risk distribution"""
     if not research_dashboard:
@@ -1587,7 +1597,7 @@ async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin
 # EXPLAINABLE AI, REPORTING & API DOCUMENTATION (Phase 4)
 # ============================================================================
 
-@app.post("/api/explainability/feature-importance")
+@app.post("/explainability/feature-importance")
 async def feature_importance(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
     if not explainable_ai_service:
         return {"error": "Explainable AI service not initialized"}
@@ -1600,7 +1610,7 @@ async def feature_importance(payload: Dict[str, Any], admin_id: str = Depends(is
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/api/explainability/decision")
+@app.post("/explainability/decision")
 async def decision_explanation(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
     if not explainable_ai_service:
         return {"error": "Explainable AI service not initialized"}
@@ -1611,7 +1621,7 @@ async def decision_explanation(payload: Dict[str, Any], admin_id: str = Depends(
         [str(item) for item in payload.get("contributing_factors", [])],
     )
 
-@app.post("/api/explainability/risk-factors")
+@app.post("/explainability/risk-factors")
 async def risk_factors_explanation(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
     if not explainable_ai_service:
         return {"error": "Explainable AI service not initialized"}
@@ -1619,7 +1629,7 @@ async def risk_factors_explanation(payload: Dict[str, Any], admin_id: str = Depe
         str(payload.get("user_id", "unknown")), payload.get("risk_factors", [])
     )
 
-@app.post("/api/explainability/what-if")
+@app.post("/explainability/what-if")
 async def what_if_explanation(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
     if not explainable_ai_service:
         return {"error": "Explainable AI service not initialized"}
@@ -1629,49 +1639,49 @@ async def what_if_explanation(payload: Dict[str, Any], admin_id: str = Depends(i
         payload.get("evaluation_result", {}),
     )
 
-@app.get("/api/reports")
+@app.get("/reports")
 async def list_reports(report_type: Optional[str] = None, days: int = 30, admin_id: str = Depends(is_admin)):
     if not automatic_reports_service:
         return {"error": "Automatic reports service not initialized"}
     return {"reports": await automatic_reports_service.get_generated_reports(report_type, max(1, min(days, 365)))}
 
-@app.get("/api/reports/schedules")
+@app.get("/reports/schedules")
 async def list_report_schedules(admin_id: str = Depends(is_admin)):
     if not automatic_reports_service:
         return {"error": "Automatic reports service not initialized"}
     return {"schedules": await automatic_reports_service.get_report_schedules()}
 
-@app.post("/api/reports/daily-summary")
+@app.post("/reports/daily-summary")
 async def daily_report(report_date: Optional[str] = None, admin_id: str = Depends(is_admin)):
     if not automatic_reports_service:
         return {"error": "Automatic reports service not initialized"}
     return await automatic_reports_service.generate_daily_summary(report_date)
 
-@app.get("/api/documentation/openapi")
+@app.get("/documentation/openapi")
 async def phase4_openapi(admin_id: str = Depends(is_admin)):
     if not api_documentation_service:
         return {"error": "API documentation service not initialized"}
     return api_documentation_service.generate_openapi_spec()
 
-@app.get("/api/documentation/architecture")
+@app.get("/documentation/architecture")
 async def phase4_architecture(admin_id: str = Depends(is_admin)):
     if not api_documentation_service:
         return {"error": "API documentation service not initialized"}
     return api_documentation_service.generate_system_architecture()
 
-@app.get("/api/documentation/er-diagram")
+@app.get("/documentation/er-diagram")
 async def phase4_er_diagram(admin_id: str = Depends(is_admin)):
     if not api_documentation_service:
         return {"error": "API documentation service not initialized"}
     return api_documentation_service.generate_entity_relationship_diagram()
 
-@app.get("/api/documentation/deployment")
+@app.get("/documentation/deployment")
 async def phase4_deployment(admin_id: str = Depends(is_admin)):
     if not api_documentation_service:
         return {"error": "API documentation service not initialized"}
     return api_documentation_service.generate_deployment_guide()
 
-@app.get("/api/documentation/reference")
+@app.get("/documentation/reference")
 async def phase4_reference(admin_id: str = Depends(is_admin)):
     if not api_documentation_service:
         return {"error": "API documentation service not initialized"}
