@@ -125,6 +125,21 @@ class APIDocumentationService:
                         "200": {"description": "Dashboard data retrieved"}
                     }
                 }
+            },
+            "/api/explainability/decision": {
+                "post": {"summary": "Explain an adaptive access decision", "tags": ["Explainability"], "security": [{"BearerAuth": []}], "responses": {"200": {"description": "Decision explanation"}}}
+            },
+            "/api/explainability/feature-importance": {
+                "post": {"summary": "Calculate feature contributions", "tags": ["Explainability"], "security": [{"BearerAuth": []}], "responses": {"200": {"description": "Feature importance"}}}
+            },
+            "/api/reports": {
+                "get": {"summary": "List generated reports", "tags": ["Reporting"], "security": [{"BearerAuth": []}], "responses": {"200": {"description": "Reports retrieved"}}}
+            },
+            "/api/reports/schedules": {
+                "get": {"summary": "List report schedules", "tags": ["Reporting"], "security": [{"BearerAuth": []}], "responses": {"200": {"description": "Schedules retrieved"}}}
+            },
+            "/api/documentation/openapi": {
+                "get": {"summary": "Get the OpenAPI contract", "tags": ["Documentation"], "security": [{"BearerAuth": []}], "responses": {"200": {"description": "OpenAPI specification"}}}
             }
         }
     

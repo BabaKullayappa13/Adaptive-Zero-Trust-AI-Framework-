@@ -1583,6 +1583,100 @@ async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
+# EXPLAINABLE AI, REPORTING & API DOCUMENTATION (Phase 4)
+# ============================================================================
+
+@app.post("/api/explainability/feature-importance")
+async def feature_importance(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
+    if not explainable_ai_service:
+        return {"error": "Explainable AI service not initialized"}
+    try:
+        return await explainable_ai_service.generate_feature_importance(
+            str(payload.get("decision_id", uuid.uuid4())),
+            payload.get("features", {}),
+            payload.get("shap_values", {}),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/explainability/decision")
+async def decision_explanation(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
+    if not explainable_ai_service:
+        return {"error": "Explainable AI service not initialized"}
+    return await explainable_ai_service.generate_decision_explanation(
+        str(payload.get("user_id", "unknown")),
+        str(payload.get("policy_decision", "challenge")),
+        float(payload.get("trust_score", 0.5)),
+        [str(item) for item in payload.get("contributing_factors", [])],
+    )
+
+@app.post("/api/explainability/risk-factors")
+async def risk_factors_explanation(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
+    if not explainable_ai_service:
+        return {"error": "Explainable AI service not initialized"}
+    return await explainable_ai_service.generate_risk_factors_analysis(
+        str(payload.get("user_id", "unknown")), payload.get("risk_factors", [])
+    )
+
+@app.post("/api/explainability/what-if")
+async def what_if_explanation(payload: Dict[str, Any], admin_id: str = Depends(is_admin)):
+    if not explainable_ai_service:
+        return {"error": "Explainable AI service not initialized"}
+    return await explainable_ai_service.explain_policy_decision(
+        str(payload.get("policy_decision_id", uuid.uuid4())),
+        str(payload.get("policy_name", "Adaptive access policy")),
+        payload.get("evaluation_result", {}),
+    )
+
+@app.get("/api/reports")
+async def list_reports(report_type: Optional[str] = None, days: int = 30, admin_id: str = Depends(is_admin)):
+    if not automatic_reports_service:
+        return {"error": "Automatic reports service not initialized"}
+    return {"reports": await automatic_reports_service.get_generated_reports(report_type, max(1, min(days, 365)))}
+
+@app.get("/api/reports/schedules")
+async def list_report_schedules(admin_id: str = Depends(is_admin)):
+    if not automatic_reports_service:
+        return {"error": "Automatic reports service not initialized"}
+    return {"schedules": await automatic_reports_service.get_report_schedules()}
+
+@app.post("/api/reports/daily-summary")
+async def daily_report(report_date: Optional[str] = None, admin_id: str = Depends(is_admin)):
+    if not automatic_reports_service:
+        return {"error": "Automatic reports service not initialized"}
+    return await automatic_reports_service.generate_daily_summary(report_date)
+
+@app.get("/api/documentation/openapi")
+async def phase4_openapi(admin_id: str = Depends(is_admin)):
+    if not api_documentation_service:
+        return {"error": "API documentation service not initialized"}
+    return api_documentation_service.generate_openapi_spec()
+
+@app.get("/api/documentation/architecture")
+async def phase4_architecture(admin_id: str = Depends(is_admin)):
+    if not api_documentation_service:
+        return {"error": "API documentation service not initialized"}
+    return api_documentation_service.generate_system_architecture()
+
+@app.get("/api/documentation/er-diagram")
+async def phase4_er_diagram(admin_id: str = Depends(is_admin)):
+    if not api_documentation_service:
+        return {"error": "API documentation service not initialized"}
+    return api_documentation_service.generate_entity_relationship_diagram()
+
+@app.get("/api/documentation/deployment")
+async def phase4_deployment(admin_id: str = Depends(is_admin)):
+    if not api_documentation_service:
+        return {"error": "API documentation service not initialized"}
+    return api_documentation_service.generate_deployment_guide()
+
+@app.get("/api/documentation/reference")
+async def phase4_reference(admin_id: str = Depends(is_admin)):
+    if not api_documentation_service:
+        return {"error": "API documentation service not initialized"}
+    return api_documentation_service.generate_api_reference()
+
+# ============================================================================
 # STARTUP & SHUTDOWN
 # ============================================================================
 

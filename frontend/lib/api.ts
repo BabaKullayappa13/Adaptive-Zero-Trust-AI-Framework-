@@ -154,6 +154,54 @@ class APIClient {
   async getResearchReport(hours: number = 24) {
     return this.client.get(`/admin/metrics/research-report?hours=${hours}`)
   }
+
+  async explainDecision(payload: Record<string, unknown>) {
+    return this.client.post('/explainability/decision', payload)
+  }
+
+  async explainFeatureImportance(payload: Record<string, unknown>) {
+    return this.client.post('/explainability/feature-importance', payload)
+  }
+
+  async analyzeRiskFactors(payload: Record<string, unknown>) {
+    return this.client.post('/explainability/risk-factors', payload)
+  }
+
+  async explainWhatIf(payload: Record<string, unknown>) {
+    return this.client.post('/explainability/what-if', payload)
+  }
+
+  async getReports(reportType?: string, days: number = 30) {
+    return this.client.get('/reports', { params: { report_type: reportType, days } })
+  }
+
+  async getReportSchedules() {
+    return this.client.get('/reports/schedules')
+  }
+
+  async generateDailySummary(reportDate?: string) {
+    return this.client.post('/reports/daily-summary', undefined, { params: { report_date: reportDate } })
+  }
+
+  async getOpenApiSpec() {
+    return this.client.get('/documentation/openapi')
+  }
+
+  async getArchitecture() {
+    return this.client.get('/documentation/architecture')
+  }
+
+  async getErDiagram() {
+    return this.client.get('/documentation/er-diagram')
+  }
+
+  async getDeploymentGuide() {
+    return this.client.get('/documentation/deployment')
+  }
+
+  async getApiReference() {
+    return this.client.get('/documentation/reference')
+  }
 }
 
 export const apiClient = new APIClient()
