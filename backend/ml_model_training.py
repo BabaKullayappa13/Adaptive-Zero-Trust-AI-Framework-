@@ -10,12 +10,18 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from typing import Dict, Tuple, Optional, List
 
+# Serverless filesystems are read-only apart from /tmp, so the model directory
+# must be configurable. /tmp is ephemeral: models written there do not persist
+# between invocations, so set MODEL_DIR to durable storage for real training.
+DEFAULT_MODEL_DIR = os.getenv("MODEL_DIR", "/tmp/models")
+
+
 class MLModelTrainer:
     """Train and manage ML models for anomaly detection"""
-    
-    def __init__(self, model_dir: str = "./models"):
-        self.model_dir = Path(model_dir)
-        self.model_dir.mkdir(exist_ok=True)
+
+    def __init__(self, model_dir: Optional[str] = None):
+        self.model_dir = Path(model_dir or DEFAULT_MODEL_DIR)
+        self.model_dir.mkdir(parents=True, exist_ok=True)
         self.scaler = None
         self.model = None
         self.model_metadata = None

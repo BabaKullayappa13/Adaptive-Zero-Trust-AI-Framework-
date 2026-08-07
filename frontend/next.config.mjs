@@ -1,21 +1,12 @@
-// Origin of the FastAPI backend. Environment driven so nothing is hardcoded per deployment.
-const BACKEND_API_URL = (process.env.BACKEND_API_URL || "http://localhost:8000").replace(/\/+$/, "")
+// No API proxy here on purpose: `/api/*` is routed to the Python service by
+// Vercel via `experimentalServices` in the root vercel.json, in both `vercel dev`
+// and production. Adding a rewrite would shadow that routing.
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts"],
-  },
-  async rewrites() {
-    return {
-      beforeFiles: [
-        {
-          source: "/api/:path*",
-          destination: `${BACKEND_API_URL}/api/:path*`,
-        },
-      ],
-    }
   },
   async headers() {
     return [
