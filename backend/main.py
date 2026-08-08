@@ -142,8 +142,8 @@ async def request_timing_middleware(request: Request, call_next):
 # ============================================================================
 
 async def get_db_connection() -> AsyncConnection:
-    """Get database connection"""
-    conn = await psycopg.AsyncConnection.connect(DATABASE_URL)
+    """Yield one short-lived Neon connection per request."""
+    conn = await psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=10)
     try:
         yield conn
     finally:
@@ -151,7 +151,7 @@ async def get_db_connection() -> AsyncConnection:
 
 async def init_db():
     """Initialize database connection pool for app startup"""
-    async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
+    async with await psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=10) as conn:
         await conn.execute("SELECT 1")
     return True
 
@@ -369,8 +369,16 @@ class TrustScoreCalculator:
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "ok", "service": "zero-trust-backend"}
+    """Report process health without leaking database credentials."""
+    try:
+        async with await psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=3) as conn:
+            await conn.execute("SELECT 1")
+        return {"status": "ok", "service": "zero-trust-backend", "database": "ok"}
+    except Exception:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "service": "zero-trust-backend", "database": "unavailable"},
+        )
 
 # ============================================================================
 # ENDPOINT: AUTHENTICATION - REGISTER
