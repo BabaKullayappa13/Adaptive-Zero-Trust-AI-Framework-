@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import psycopg
 from psycopg import AsyncConnection
+from psycopg_pool import AsyncConnectionPool
 import jwt
 import pyotp
 from passlib.context import CryptContext
@@ -83,6 +84,13 @@ ALLOWED_ORIGINS = [
 if "*" in ALLOWED_ORIGINS:
     raise ValueError("ALLOWED_ORIGINS must not contain '*' when credentials are enabled")
 security = HTTPBearer(auto_error=False)
+database_pool = AsyncConnectionPool(
+    conninfo=DATABASE_URL,
+    min_size=1,
+    max_size=int(os.getenv("DB_POOL_MAX_SIZE", "10")),
+    timeout=10,
+    open=False,
+)
 
 # Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -142,16 +150,14 @@ async def request_timing_middleware(request: Request, call_next):
 # ============================================================================
 
 async def get_db_connection() -> AsyncConnection:
-    """Yield one short-lived Neon connection per request."""
-    conn = await psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=10)
-    try:
+    """Borrow and return a pooled Neon connection for one request."""
+    async with database_pool.connection() as conn:
         yield conn
-    finally:
-        await conn.close()
 
 async def init_db():
-    """Initialize database connection pool for app startup"""
-    async with await psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=10) as conn:
+    """Open the pool and verify the Neon connection."""
+    await database_pool.open(wait=True)
+    async with database_pool.connection() as conn:
         await conn.execute("SELECT 1")
     return True
 
@@ -371,7 +377,7 @@ class TrustScoreCalculator:
 async def health_check():
     """Report process health without leaking database credentials."""
     try:
-        async with await psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=3) as conn:
+        async with database_pool.connection(timeout=3) as conn:
             await conn.execute("SELECT 1")
         return {"status": "ok", "service": "zero-trust-backend", "database": "ok"}
     except Exception:
@@ -1772,6 +1778,11 @@ async def startup_event():
         print("✓ ML models initialized")
     except Exception as e:
         print(f"✗ Startup error: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close pooled database connections cleanly."""
+    await database_pool.close()
 
 if __name__ == "__main__":
     import uvicorn
