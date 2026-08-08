@@ -21,9 +21,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .input::placeholder { color: #64748b; }
 .input:focus { border-color: rgba(244,114,182,.65); box-shadow: 0 0 0 3px rgba(244,114,182,.1); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border-radius: 12px; padding: .75rem 1rem; font-size: .875rem; font-weight: 700; }
-.btn-primary { background: #ec4899; color: #2b071b; box-shadow: 0 10px 25px rgba(34,211,238,.18); }
+.btn-primary { background: #ec4899; color: #2b071b; box-shadow: 0 10px 25px rgba(236,72,153,.18); }
 .btn-primary:hover { background: #f9a8d4; transform: translateY(-1px); }
 .btn-secondary { border: 1px solid rgba(148,163,184,.2); background: rgba(255,255,255,.04); color: #cbd5e1; }
-.btn-secondary:hover { border-color: rgba(244,114,182,.4); background: rgba(244,114,182,.08); color: #cffafe; }
+.btn-secondary:hover { border-color: rgba(244,114,182,.4); background: rgba(244,114,182,.08); color: #fbcfe8; }
+.reveal { animation: reveal-up .65s cubic-bezier(.2,.8,.2,1) both; }
+.reveal-delay-1 { animation-delay: .08s; }
+.reveal-delay-2 { animation-delay: .16s; }
+.reveal-delay-3 { animation-delay: .24s; }
+.reveal-delay-4 { animation-delay: .32s; }
+@keyframes reveal-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .reveal, .reveal-delay-1, .reveal-delay-2, .reveal-delay-3, .reveal-delay-4 { animation: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 @media (max-width: 640px) { .soc-panel:hover { transform: none; } }
