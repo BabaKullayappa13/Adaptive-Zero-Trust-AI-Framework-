@@ -1,22 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export function middleware(request: NextRequest) {
+const SESSION_TTL_SECONDS = 60 * 60 * 8
+
+async function validAdminSession(value: string | undefined) {
+  if (!value) return false
+  const [issuedAt, providedSignature] = value.split('.')
+  const timestamp = Number(issuedAt)
+  if (!Number.isFinite(timestamp) || Math.floor(Date.now() / 1000) - timestamp > SESSION_TTL_SECONDS || !providedSignature) return false
+  const secret = process.env.ADMIN_SESSION_SECRET || process.env.SECRET_KEY || 'development-only-secret'
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
+  const signatureBytes = new Uint8Array(providedSignature.match(/.{1,2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? [])
+  return crypto.subtle.verify('HMAC', key, signatureBytes, new TextEncoder().encode(issuedAt))
+}
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-
-  // Protected routes that require authentication
-  const protectedRoutes = ['/admin', '/dashboard', '/policies', '/federated', '/cloud', '/research']
-  const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
-
-  if (isProtectedRoute) {
-    // The current auth flow stores bearer tokens in the browser, which is not
-    // available to middleware. Leave the route accessible so the client-side
-    // guards can validate the session without redirect loops.
-    return NextResponse.next()
+  if (pathname.startsWith('/admin') && pathname !== '/admin/login' && !(await validAdminSession(request.cookies.get('admin_session')?.value))) {
+    return NextResponse.redirect(new URL('/admin/login', request.url))
   }
-
   return NextResponse.next()
 }
 
-export const config = {
-  matcher: ['/admin/:path*', '/dashboard/:path*', '/policies/:path*', '/federated/:path*', '/cloud/:path*', '/research/:path*']
-}
+export const config = { matcher: ['/admin/:path*'] }

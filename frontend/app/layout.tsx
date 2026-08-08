@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Zero Trust AI Framework',
-  description: 'Adaptive continuous multi-factor authentication with AI-powered risk detection',
+  title: 'Adaptive Zero Trust AI | Security Operations',
+  description: 'Premium continuous authentication, adaptive policy enforcement, and explainable security intelligence.',
 }
 
 export default function RootLayout({
