@@ -238,6 +238,16 @@ class RiskEventResponse(BaseModel):
     explanation: Dict[str, Any]
     created_at: str
 
+
+class ContinuousBehaviorEvent(BaseModel):
+    session_id: Optional[int] = None
+    features: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ContinuousStepUpRequest(BaseModel):
+    session_id: int
+    totp_code: str = Field(..., min_length=6, max_length=8)
+
 # ============================================================================
 # SECURITY UTILITIES
 # ============================================================================
@@ -833,28 +843,28 @@ async def detect_risk(
         else:
             risk_level = "HIGH"
         
-        # Create explanation with SHAP-like insights
+        # This is a feature-based explanation, not SHAP. It reports only
+        # signals actually supplied to the anomaly detector.
         explanation = {
+            "method": "feature-based risk explanation",
             "anomaly_score": float(anomaly_score),
             "risk_factors": {
                 "unusual_time": session_data.get("login_hour", 14) > 22 or session_data.get("login_hour", 14) < 6,
-                "new_device": session_data.get("new_device", False),
+                "new_device": bool(session_data.get("new_device", False)),
                 "geographic_anomaly": session_data.get("geographic_distance", 1) > 100,
                 "high_velocity": session_data.get("velocity", 25) > 50,
-                "multiple_failed_attempts": session_data.get("failed_attempts", 0) > 3
+                "multiple_failed_attempts": session_data.get("failed_attempts", 0) > 3,
             },
-            "shap_values": {
-                "feature_importance": {
-                    "login_hour": 0.15,
-                    "device_count": 0.10,
-                    "failed_attempts": 0.25,
-                    "session_duration": 0.05,
-                    "geographic_distance": 0.20,
-                    "device_trust": 0.15,
-                    "velocity": 0.08,
-                    "request_count": 0.02
-                }
-            }
+            "observed_features": {
+                "login_hour": session_data.get("login_hour", 14),
+                "device_count": session_data.get("device_count", 2),
+                "failed_attempts": session_data.get("failed_attempts", 0),
+                "session_duration": session_data.get("session_duration", 10),
+                "geographic_distance": session_data.get("geographic_distance", 1),
+                "device_trust": session_data.get("device_trust", 0.8),
+                "velocity": session_data.get("velocity", 25),
+                "request_count": session_data.get("request_count", 100),
+            },
         }
         
         # Save risk event
@@ -879,6 +889,97 @@ async def detect_risk(
     except Exception as e:
         print(f"[v0] Request failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/continuous/events")
+async def submit_continuous_event(
+    event: ContinuousBehaviorEvent,
+    current_user_id: str = Depends(get_current_user),
+    conn: AsyncConnection = Depends(get_db_connection),
+):
+    """Evaluate one aggregated behavioral window for the authenticated user."""
+    features = dict(event.features)
+    if event.session_id is not None:
+        session_result = await conn.execute(
+            "SELECT id FROM user_sessions WHERE id = %s AND user_id = %s AND is_active = TRUE",
+            (event.session_id, current_user_id),
+        )
+        if not await session_result.fetchone():
+            raise HTTPException(status_code=404, detail="Active session not found")
+    return await detect_risk(current_user_id, features, conn, current_user_id)
+
+
+@app.post("/api/continuous/step-up")
+async def continuous_step_up(
+    payload: ContinuousStepUpRequest,
+    current_user_id: str = Depends(get_current_user),
+    conn: AsyncConnection = Depends(get_db_connection),
+):
+    """Verify TOTP for a risk-triggered step-up and restore the session trust state."""
+    session_result = await conn.execute(
+        "SELECT id FROM user_sessions WHERE id = %s AND user_id = %s AND is_active = TRUE",
+        (payload.session_id, current_user_id),
+    )
+    if not await session_result.fetchone():
+        raise HTTPException(status_code=404, detail="Active session not found")
+    user_result = await conn.execute("SELECT mfa_secret FROM users WHERE id = %s", (current_user_id,))
+    user = await user_result.fetchone()
+    if not user or not user[0] or not pyotp.TOTP(user[0]).verify(payload.totp_code, valid_window=1):
+        await conn.execute(
+            "INSERT INTO audit_logs (user_id, action_type, resource_type, resource_id, details, status) VALUES (%s, %s, %s, %s, %s, %s)",
+            (current_user_id, "mfa_step_up", "session", str(payload.session_id), json.dumps({"result": "failure"}), "denied"),
+        )
+        await conn.commit()
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+    await conn.execute(
+        "UPDATE user_sessions SET trust_score = 100, risk_score = 0, last_activity = NOW() WHERE id = %s",
+        (payload.session_id,),
+    )
+    await conn.execute(
+        "INSERT INTO audit_logs (user_id, action_type, resource_type, resource_id, details, status) VALUES (%s, %s, %s, %s, %s, %s)",
+        (current_user_id, "mfa_step_up", "session", str(payload.session_id), json.dumps({"result": "success"}), "success"),
+    )
+    await conn.commit()
+    return {"success": True, "decision": "ALLOW", "session_id": payload.session_id}
+
+
+@app.get("/api/continuous/status")
+async def continuous_status(current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
+    """Return the latest persisted continuous-authentication state for the caller."""
+    session_result = await conn.execute(
+        """SELECT id, device_id, trust_score, risk_score, is_active, last_activity, expires_at
+           FROM user_sessions WHERE user_id = %s ORDER BY last_activity DESC NULLS LAST, created_at DESC LIMIT 1""",
+        (current_user_id,),
+    )
+    session = await session_result.fetchone()
+    risk_result = await conn.execute(
+        """SELECT risk_level, risk_score, explanation, created_at
+           FROM risk_events WHERE user_id = %s ORDER BY created_at DESC LIMIT 1""",
+        (current_user_id,),
+    )
+    risk = await risk_result.fetchone()
+    policy_result = await conn.execute(
+        """SELECT decision, reason, action_required, created_at
+           FROM policy_decisions WHERE user_id = %s ORDER BY created_at DESC LIMIT 1""",
+        (current_user_id,),
+    )
+    policy = await policy_result.fetchone()
+    return {
+        "session": None if not session else {
+            "session_id": session[0], "device_id": session[1],
+            "trust_score": float(session[2]), "risk_score": float(session[3]),
+            "is_active": session[4],
+            "last_activity": session[5].isoformat() if session[5] else None,
+            "expires_at": session[6].isoformat() if session[6] else None,
+        },
+        "latest_risk": None if not risk else {
+            "level": risk[0], "score": float(risk[1]),
+            "explanation": risk[2], "created_at": risk[3].isoformat(),
+        },
+        "latest_policy": None if not policy else {
+            "decision": policy[0], "reason": policy[1],
+            "action_required": policy[2], "created_at": policy[3].isoformat(),
+        },
+    }
 
 # ============================================================================
 # ENDPOINT: AUDIT LOGS
@@ -937,19 +1038,25 @@ async def dashboard_summary(user_id: str = Depends(get_current_user), conn: Asyn
         (user_id,),
     )
     risks = await risk_result.fetchall()
+    session_result = await conn.execute(
+        "SELECT COUNT(*) FILTER (WHERE is_active = TRUE), COUNT(*) FILTER (WHERE is_active = FALSE) FROM user_sessions WHERE user_id = %s",
+        (user_id,),
+    )
+    active_sessions, ended_sessions = await session_result.fetchone()
+    policy_result = await conn.execute(
+        "SELECT COUNT(*) FILTER (WHERE decision <> 'ALLOW'), COUNT(*) FILTER (WHERE decision = 'BLOCK') FROM policy_decisions WHERE user_id = %s",
+        (user_id,),
+    )
+    policy_violations, blocked_sessions = await policy_result.fetchone()
     return {
         "trust_history": [{"score": float(row[0]), "factors": row[1], "created_at": row[2].isoformat()} for row in scores],
         "risk_timeline": [{"risk_level": row[0], "risk_score": float(row[1]), "created_at": row[2].isoformat()} for row in risks],
-        "active_sessions": 1,
-        "blocked_sessions": 0,
-        "policy_violations": 0,
-        "cloud": {"mode": "hybrid", "simulation": True, "processed_by": {"authentication": "private-cloud", "risk_analysis": "hybrid", "aggregation": "private-cloud"}},
-        "federated_learning": {"round": 3, "model_version": "fedavg-sim-v1", "participating_clients": 3, "simulation": True, "raw_data_shared": False},
-        "models": [
-            {"name": "Isolation Forest", "version": "iforest-v1", "status": "active", "metrics_available": False},
-            {"name": "Random Forest", "version": "rf-adapter-v1", "status": "adapter", "metrics_available": False},
-            {"name": "TensorFlow neural network", "version": "tensorflow-adapter-v1", "status": "optional", "metrics_available": False},
-        ],
+        "active_sessions": active_sessions or 0,
+        "blocked_sessions": ended_sessions or 0,
+        "policy_violations": policy_violations or 0,
+        "cloud": {"mode": "hybrid", "simulation": True, "label": "Hybrid Cloud Security Prototype"},
+        "federated_learning": {"simulation": True, "label": "Federated Learning Simulation/Prototype", "raw_data_shared": False},
+        "models": [],
     }
 
 # ============================================================================

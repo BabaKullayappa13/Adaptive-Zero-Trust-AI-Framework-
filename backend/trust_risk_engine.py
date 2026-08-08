@@ -5,7 +5,16 @@ Dynamically calculates trust and risk scores based on multiple factors
 
 from typing import Dict, List
 from datetime import datetime, timedelta
+import os
 import psycopg
+
+
+RISK_THRESHOLDS = {
+    "low_max": int(os.getenv("RISK_LOW_MAX", "29")),
+    "medium_max": int(os.getenv("RISK_MEDIUM_MAX", "59")),
+    "high_max": int(os.getenv("RISK_HIGH_MAX", "79")),
+}
+POLICY_VERSION = os.getenv("ZERO_TRUST_POLICY_VERSION", "1.0")
 
 
 class TrustRiskEngine:
@@ -137,14 +146,14 @@ class TrustRiskEngine:
         risk_score = min(100, max(0, risk_score))
 
         # Determine risk level
-        if risk_score < 25:
-            risk_level = "Low"
-        elif risk_score < 50:
-            risk_level = "Medium"
-        elif risk_score < 75:
-            risk_level = "High"
+        if risk_score <= RISK_THRESHOLDS["low_max"]:
+            risk_level = "LOW"
+        elif risk_score <= RISK_THRESHOLDS["medium_max"]:
+            risk_level = "MEDIUM"
+        elif risk_score <= RISK_THRESHOLDS["high_max"]:
+            risk_level = "HIGH"
         else:
-            risk_level = "Critical"
+            risk_level = "CRITICAL"
 
         # Store in history
         async with await self.db_connect() as conn:
@@ -225,53 +234,50 @@ class TrustRiskEngine:
     ) -> Dict:
         """Evaluate Zero Trust Policy based on scores"""
 
-        policy_decision = None
-        access_level = None
-        action_required = None
-
-        # Policy rules based on Trust Score
-        if trust_score > 80:
-            policy_decision = "Full Access"
-            access_level = "admin"
-        elif trust_score >= 60:
-            policy_decision = "Continue Monitoring"
-            access_level = "user"
-        elif trust_score >= 40:
-            policy_decision = "Require MFA"
+        # The policy is risk-first and intentionally independent of client claims.
+        # Thresholds are centralized above so every evaluation uses one contract.
+        if risk_score >= RISK_THRESHOLDS["high_max"] + 1:
+            policy_decision = "BLOCK"
+            access_level = "denied"
+            action_required = "revoke_session"
+        elif risk_score >= RISK_THRESHOLDS["medium_max"] + 1 or trust_score < 60:
+            policy_decision = "STEP_UP_MFA"
             access_level = "limited"
             action_required = "mfa_required"
-        elif trust_score >= 20:
-            policy_decision = "Restrict Sensitive Actions"
-            access_level = "restricted"
-            action_required = "restrict_sensitive"
         else:
-            policy_decision = "Session Ended - Re-authentication Required"
-            access_level = "denied"
-            action_required = "end_session"
-
-        # Risk score can override policy
-        if risk_score > 80:
-            policy_decision = "Session Ended - High Risk Detected"
-            access_level = "denied"
-            action_required = "end_session"
+            policy_decision = "ALLOW"
+            access_level = "user"
+            action_required = "continue_monitoring"
 
         # Store policy decision
         async with await self.db_connect() as conn:
+            reason = (
+                "Critical risk exceeded the revocation threshold"
+                if policy_decision == "BLOCK"
+                else "Risk or trust threshold requires step-up MFA"
+                if policy_decision == "STEP_UP_MFA"
+                else "Signals remain within the allow thresholds"
+            )
             await conn.execute(
-                """INSERT INTO policy_decisions 
+                """INSERT INTO policy_decisions
                    (user_id, session_id, decision, trust_score, risk_score, reason, action_required)
                    VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                 (user_id, session_id, policy_decision, trust_score, risk_score,
-                 "Dynamic policy evaluation", action_required)
+                 reason, action_required)
             )
             await conn.commit()
 
         return {
             "policy_decision": policy_decision,
+            "decision": policy_decision,
             "access_level": access_level,
             "action_required": action_required,
             "trust_score": trust_score,
-            "risk_score": risk_score
+            "risk_score": risk_score,
+            "reason": reason,
+            "rules_triggered": [],
+            "policy_version": POLICY_VERSION,
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
     async def get_score_history(
