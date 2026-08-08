@@ -1,109 +1,42 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Activity, Bell, RefreshCw, ShieldCheck } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
 import { apiClient } from '@/lib/api'
-import TrustScoreCard from '@/components/dashboard/trust-score-card'
-import RiskEventsList from '@/components/dashboard/risk-events-list'
-import AuditLogsTable from '@/components/dashboard/audit-logs-table'
-import Charts from '@/components/dashboard/charts'
 import Navbar from '@/components/navbar'
-
-interface Summary {
-  trust_history: Array<{ score: number; created_at: string }>
-  risk_timeline: Array<{ risk_level: string; risk_score: number; created_at: string }>
-  active_sessions: number
-  blocked_sessions: number
-  policy_violations: number
-  cloud: { mode: string; simulation: boolean; processed_by: Record<string, string> }
-  federated_learning: { round: number; model_version: string; participating_clients: number; simulation: boolean; raw_data_shared: boolean }
-  models: Array<{ name: string; version: string; status: string; metrics_available: boolean }>
-}
-
-const metricCards = [
-  ['Active sessions', 'active_sessions'],
-  ['Blocked sessions', 'blocked_sessions'],
-  ['Policy violations', 'policy_violations'],
-] as const
+import SecurityOverview, { SecurityOverviewData } from '@/components/dashboard/security-overview'
 
 export default function DashboardPage() {
   const router = useRouter()
   const { user, accessToken, isInitialized, logout, loadUser } = useAuthStore()
-  const [trustScore, setTrustScore] = useState<any>(null)
-  const [riskEvents, setRiskEvents] = useState<any[]>([])
-  const [auditLogs, setAuditLogs] = useState<any[]>([])
-  const [summary, setSummary] = useState<Summary | null>(null)
+  const [summary, setSummary] = useState<SecurityOverviewData | null>(null)
+  const [trustScore, setTrustScore] = useState<{ score: number; factors?: Record<string, number> } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => { void loadUser() }, [loadUser])
-  useEffect(() => {
-    if (isInitialized && (!user || !accessToken)) router.push('/auth/login')
-  }, [user, accessToken, isInitialized, router])
+  useEffect(() => { if (isInitialized && (!user || !accessToken)) router.replace('/auth/login') }, [user, accessToken, isInitialized, router])
 
-  useEffect(() => {
+  const loadDashboard = useCallback(async () => {
     if (!user) return
-    let active = true
-    const loadData = async () => {
-      try {
-        setError(null)
-        const [scoreRes, summaryRes, logsRes] = await Promise.all([
-          apiClient.getTrustScore(user.id),
-          apiClient.getDashboardSummary(),
-          apiClient.getAuditLogs(user.id, 10),
-        ])
-        if (!active) return
-        setTrustScore(scoreRes.data)
-        setSummary(summaryRes.data)
-        setRiskEvents((summaryRes.data.risk_timeline || []).map((event: any, index: number) => ({ ...event, id: `risk-${index}`, event_type: 'Continuous assessment', risk_score: event.risk_score, context: {}, explanation: {} })))
-        setAuditLogs(logsRes.data.logs || [])
-      } catch (err) {
-        if (active) setError('Unable to load security telemetry. Verify the API and database connection.')
-      } finally {
-        if (active) setLoading(false)
-      }
+    setLoading(true)
+    setError(null)
+    try {
+      const [summaryResponse, scoreResponse] = await Promise.all([apiClient.getDashboardSummary(), apiClient.getTrustScore(user.id)])
+      setSummary(summaryResponse.data)
+      setTrustScore(scoreResponse.data)
+    } catch {
+      setError('Security telemetry is unavailable. Check the backend service and retry.')
+    } finally {
+      setLoading(false)
     }
-    void loadData()
-    const interval = window.setInterval(() => void loadData(), 30000)
-    return () => { active = false; window.clearInterval(interval) }
   }, [user])
 
-  if (!isInitialized || !user || !accessToken) return null
+  useEffect(() => { if (user) void loadDashboard() }, [user, loadDashboard])
 
-  return (
-    <div className="min-h-screen bg-background">
-      <Navbar user={user} onLogout={logout} />
-      <main className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
-        <header className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-4xl font-bold text-foreground">Security dashboard</h1>
-            <span className="badge badge-low">Live · 30s assessment</span>
-          </div>
-          <p className="text-slate-400">Continuous trust monitoring with proposal features clearly marked when simulated.</p>
-        </header>
+  if (!isInitialized || !user || !accessToken) return <div className="min-h-screen bg-[#060b14]" />
 
-        {error && <div role="alert" className="card border-danger/40 text-danger">{error}</div>}
-        {loading && <div className="card text-slate-400" role="status">Loading security telemetry…</div>}
-
-        {!loading && summary && (
-          <>
-            <section aria-label="Security status" className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              {metricCards.map(([label, key]) => (
-                <div className="card" key={key}><p className="text-sm text-slate-400">{label}</p><p className="mt-2 text-3xl font-bold text-foreground">{summary[key]}</p></div>
-              ))}
-            </section>
-            {trustScore && <TrustScoreCard trustScore={trustScore} />}
-            <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <div className="card"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-semibold text-foreground">Hybrid cloud posture</h2><p className="mt-1 text-slate-400">Processing placement is a demonstrable simulation.</p></div><span className="badge badge-medium">Simulation</span></div><p className="mt-5 text-3xl font-bold capitalize text-primary">{summary.cloud.mode} cloud</p><dl className="mt-4 flex flex-col gap-2 text-sm">{Object.entries(summary.cloud.processed_by).map(([key, value]) => <div className="flex justify-between gap-4" key={key}><dt className="capitalize text-slate-400">{key.replace('_', ' ')}</dt><dd className="text-foreground">{value}</dd></div>)}</dl></div>
-              <div className="card"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-semibold text-foreground">Federated learning</h2><p className="mt-1 text-slate-400">FedAvg workflow status; client rows never leave the simulator.</p></div><span className="badge badge-medium">Simulation</span></div><div className="mt-5 grid grid-cols-3 gap-3 text-center"><div><p className="text-2xl font-bold text-foreground">{summary.federated_learning.round}</p><p className="text-xs text-slate-400">Round</p></div><div><p className="text-2xl font-bold text-foreground">{summary.federated_learning.participating_clients}</p><p className="text-xs text-slate-400">Clients</p></div><div><p className="text-2xl font-bold text-primary">FedAvg</p><p className="text-xs text-slate-400">Strategy</p></div></div></div>
-            </section>
-            <Charts />
-            <section className="card"><h2 className="text-xl font-semibold text-foreground">Model registry</h2><div className="mt-4 grid gap-3 md:grid-cols-3">{summary.models.map((model) => <div className="rounded-lg border border-slate-700 p-4" key={model.version}><p className="font-semibold text-foreground">{model.name}</p><p className="text-sm text-slate-400">{model.version}</p><span className="badge badge-medium mt-3">{model.status}{model.metrics_available ? '' : ' · metrics pending'}</span></div>)}</div></section>
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2"><RiskEventsList events={riskEvents} /><AuditLogsTable logs={auditLogs} /></div>
-          </>
-        )}
-      </main>
-    </div>
-  )
+  return <div className="min-h-screen bg-[#060b14] text-slate-100"><Navbar user={user} onLogout={logout} /><main className="mx-auto flex max-w-[1480px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8"><header className="flex flex-col gap-5 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between"><div><div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300"><ShieldCheck className="size-4" />Adaptive Zero Trust AI</div><h1 className="text-balance text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl">Security operations center</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Continuous authentication, adaptive policy enforcement, and explainable risk intelligence.</p></div><div className="flex items-center gap-3"><span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-300"><span className="size-2 animate-pulse rounded-full bg-emerald-300" />Operational</span><button type="button" onClick={() => void loadDashboard()} className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.04] px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-white/[.08]" disabled={loading}><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button></div></header>{error && <div className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-4 text-sm text-rose-200" role="alert">{error} <button type="button" onClick={() => void loadDashboard()} className="ml-2 underline">Retry</button></div>}{loading && <div className="grid gap-6 lg:grid-cols-2" role="status" aria-label="Loading security telemetry">{[1, 2, 3, 4].map((item) => <div className="h-44 animate-pulse rounded-xl border border-white/10 bg-white/[.03]" key={item} />)}</div>}{summary && !loading && <SecurityOverview data={summary} trustScore={trustScore} />}<footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5 text-xs text-slate-500"><span className="flex items-center gap-2"><Activity className="size-3.5 text-cyan-300" />Telemetry is sourced from the FastAPI security service.</span><span className="flex items-center gap-2"><Bell className="size-3.5" />No new critical alerts</span></footer></main></div>
 }
