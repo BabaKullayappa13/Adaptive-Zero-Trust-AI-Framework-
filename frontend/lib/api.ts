@@ -17,7 +17,7 @@ class APIClient {
 
     // Add token to requests
     this.client.interceptors.request.use((config) => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
+      const token = typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }
@@ -35,7 +35,7 @@ class APIClient {
             if (failedUrl.endsWith('/auth/refresh') || failedUrl.endsWith('/auth/login') || failedUrl.endsWith('/auth/register')) {
               return Promise.reject(error)
             }
-            const refreshToken = localStorage.getItem('refresh_token')
+            const refreshToken = sessionStorage.getItem('refresh_token')
             if (refreshToken) {
               try {
                 const requestConfig = error.config as typeof error.config & { _retry?: boolean }
@@ -45,8 +45,8 @@ class APIClient {
                 requestConfig._retry = true
                 const response = await this.client.post('/auth/refresh', { refresh_token: refreshToken })
                 const { access_token, refresh_token: nextRefreshToken } = response.data
-                localStorage.setItem('access_token', access_token)
-                if (nextRefreshToken) localStorage.setItem('refresh_token', nextRefreshToken)
+                sessionStorage.setItem('access_token', access_token)
+                if (nextRefreshToken) sessionStorage.setItem('refresh_token', nextRefreshToken)
                 if (error.config) {
                   error.config.headers = error.config.headers ?? {}
                   error.config.headers.Authorization = `Bearer ${access_token}`
@@ -55,8 +55,8 @@ class APIClient {
                 return Promise.reject(error)
               } catch (refreshError) {
                 // Refresh failed - redirect to login and settle the request.
-                localStorage.removeItem('access_token')
-                localStorage.removeItem('refresh_token')
+                sessionStorage.removeItem('access_token')
+                sessionStorage.removeItem('refresh_token')
                 window.location.href = '/auth/login'
                 return Promise.reject(refreshError)
               }

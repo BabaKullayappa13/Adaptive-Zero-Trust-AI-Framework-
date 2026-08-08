@@ -38,12 +38,7 @@ export default function Phase4Page() {
       })
       setDecision(response.data)
     } catch {
-      setDecision({
-        summary: 'Additional verification REQUIRED for the current session. Trust score: 68.0%',
-        trust_score: 0.68,
-        decision: 'challenge',
-        contributing_factors: ['1. Location variance detected', '2. Device remains trusted', '3. MFA is enabled'],
-      })
+      setDecision({ error: 'Explainability service is unavailable. No simulated decision was shown.' })
     } finally {
       setGenerating(false)
     }
@@ -72,7 +67,7 @@ export default function Phase4Page() {
               <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-medium text-muted-foreground">Latest policy evaluation</p><h2 className="mt-1 text-2xl font-semibold text-foreground">Adaptive access decision</h2></div><span className="badge badge-medium">Challenge</span></div>
               <div className="flex items-end gap-3"><span className="text-6xl font-bold tracking-tight text-primary">68</span><span className="pb-2 text-sm text-muted-foreground">/ 100 trust score</span></div>
               <div className="flex flex-col gap-3">{(decision?.contributing_factors ?? ['Location variance detected', 'Device remains trusted', 'MFA is enabled']).map((factor: string) => <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 px-4 py-3" key={factor}><span className="text-sm text-foreground">{factor.replace(/^\d+\.\s*/, '')}</span><ArrowRight className="size-4 text-muted-foreground" /></div>)}</div>
-              <p className="border-t border-border pt-4 text-sm leading-6 text-muted-foreground">{decision?.summary ?? 'Run an explanation to generate a human-readable rationale for this policy outcome.'}</p>
+              {decision?.error ? <p className="border-t border-destructive/30 pt-4 text-sm leading-6 text-destructive" role="alert">{decision.error}</p> : <p className="border-t border-border pt-4 text-sm leading-6 text-muted-foreground">{decision?.summary ?? 'Run an explanation to generate a human-readable rationale for this policy outcome.'}</p>}
             </article>
             <article className="card flex flex-col gap-5"><div><p className="text-sm font-medium text-muted-foreground">SHAP contribution view</p><h2 className="mt-1 text-2xl font-semibold text-foreground">What moved the score?</h2></div><div className="flex flex-col gap-4">{sampleFeatures.map((feature) => <div className="flex flex-col gap-2" key={feature.name}><div className="flex justify-between gap-4 text-sm"><span className="text-foreground">{feature.name}</span><span className={feature.direction === 'positive' ? 'text-primary' : 'text-destructive'}>{feature.impact > 0 ? '+' : ''}{feature.impact.toFixed(2)}</span></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${feature.direction === 'positive' ? 'bg-primary' : 'bg-destructive'}`} style={{ width: `${Math.max(18, Math.abs(feature.impact) * 180)}%` }} /></div><p className="text-xs text-muted-foreground">Observed value {feature.value.toFixed(2)} · {feature.direction === 'positive' ? 'increases' : 'decreases'} confidence</p></div>)}</div></article>
           </div>

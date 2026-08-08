@@ -41,13 +41,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   setTokens: (accessToken, refreshToken) => {
     set({ accessToken, refreshToken })
     // Tokens should be stored securely - using memory + httpOnly cookies in production
-    // localStorage is vulnerable to XSS attacks; in production, use httpOnly cookies instead
+    // sessionStorage is vulnerable to XSS attacks; in production, use httpOnly cookies instead
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem('access_token', accessToken)
-        localStorage.setItem('refresh_token', refreshToken)
+        sessionStorage.setItem('access_token', accessToken)
+        sessionStorage.setItem('refresh_token', refreshToken)
       } catch (e) {
-        console.warn('[v0] Failed to store tokens in localStorage')
+        console.warn('[v0] Failed to store tokens in sessionStorage')
       }
     }
   },
@@ -76,9 +76,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       const { access_token, refresh_token } = response.data
       set({ accessToken: access_token, refreshToken: refresh_token, isInitialized: true, error: null })
       if (typeof window !== 'undefined') {
-        localStorage.setItem('access_token', access_token)
-        localStorage.setItem('refresh_token', refresh_token)
-        localStorage.setItem('user_email', email)
+        sessionStorage.setItem('access_token', access_token)
+        sessionStorage.setItem('refresh_token', refresh_token)
+        sessionStorage.setItem('user_email', email)
       }
       const userResponse = await apiClient.getCurrentUser()
       set({ user: userResponse.data })
@@ -99,9 +99,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     } finally {
       set({ user: null, accessToken: null, refreshToken: null, error: null })
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('user_email')
+        sessionStorage.removeItem('access_token')
+        sessionStorage.removeItem('refresh_token')
+        sessionStorage.removeItem('user_email')
       }
     }
   },
@@ -136,8 +136,8 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   loadUser: async () => {
     if (typeof window === 'undefined') return
-    const accessToken = localStorage.getItem('access_token')
-    const refreshToken = localStorage.getItem('refresh_token')
+    const accessToken = sessionStorage.getItem('access_token')
+    const refreshToken = sessionStorage.getItem('refresh_token')
     if (!accessToken) {
       set({ isInitialized: true })
       return
@@ -148,8 +148,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: response.data, error: null, isInitialized: true })
     } catch {
       set({ user: null, accessToken: null, refreshToken: null, isInitialized: true })
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
+      sessionStorage.removeItem('access_token')
+      sessionStorage.removeItem('refresh_token')
     }
   },
 }))
