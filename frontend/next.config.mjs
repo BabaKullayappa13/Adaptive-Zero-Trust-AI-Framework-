@@ -14,7 +14,7 @@ function isUsableBackendUrl(value) {
     const url = new URL(value)
     if (!['http:', 'https:'].includes(url.protocol)) return false
     if (url.hostname === 'localhost' && process.env.NODE_ENV !== 'development') return false
-    if (url.hostname.includes('example.com') || url.hostname === frontendHost || url.hostname.endsWith('.vercel.app')) return false
+    if (url.hostname.includes('example.com') || url.hostname === frontendHost) return false
     return true
   } catch {
     return false
