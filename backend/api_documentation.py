@@ -246,7 +246,8 @@ class APIDocumentationService:
                     "name": "Infrastructure Layer",
                     "components": [
                         "Vercel",
-                        "Supabase",
+                        "Render FastAPI",
+                        "Neon PostgreSQL",
                         "Hybrid Cloud (AWS/GCP/Azure)",
                         "Docker Containers"
                     ]
