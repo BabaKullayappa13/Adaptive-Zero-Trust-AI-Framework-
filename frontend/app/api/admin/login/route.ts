@@ -8,11 +8,13 @@ function signature(value: string) {
 }
 
 export async function POST(request: Request) {
-  const configuredKey = process.env.ADMIN_ACCESS_KEY
+  const configuredKey = process.env.ADMIN_ACCESS_KEY?.trim()
   if (!configuredKey) return NextResponse.json({ detail: 'Admin access is not configured' }, { status: 503 })
 
   const body = await request.json().catch(() => null)
-  const providedKey = typeof body?.key === 'string' ? body.key : ''
+  const providedKey = typeof body?.key === 'string' ? body.key.trim() : ''
+  if (!providedKey) return NextResponse.json({ detail: 'Secure access key is required' }, { status: 400 })
+
   const expected = Buffer.from(configuredKey)
   const received = Buffer.from(providedKey)
   const valid = expected.length === received.length && timingSafeEqual(expected, received)

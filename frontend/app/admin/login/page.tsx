@@ -12,15 +12,38 @@ export default function AdminLoginPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const normalizedKey = key.trim()
+    if (!normalizedKey) {
+      setError('Enter your secure access key to continue.')
+      return
+    }
+
     setError('')
     setLoading(true)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 10000)
     try {
-      const response = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) })
-      if (!response.ok) throw new Error('Invalid admin key')
+      const response = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ key: normalizedKey }),
+        signal: controller.signal,
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(typeof payload?.detail === 'string' ? payload.detail : 'Invalid admin key')
+      }
       router.replace('/admin')
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : 'Admin authentication failed')
+      if (loginError instanceof DOMException && loginError.name === 'AbortError') {
+        setError('The secure access request timed out. Check the connection and try again.')
+      } else if (loginError instanceof TypeError) {
+        setError('Secure access is temporarily unavailable. Check the frontend connection and try again.')
+      } else {
+        setError(loginError instanceof Error ? loginError.message : 'Admin authentication failed')
+      }
     } finally {
+      window.clearTimeout(timeout)
       setLoading(false)
     }
   }
