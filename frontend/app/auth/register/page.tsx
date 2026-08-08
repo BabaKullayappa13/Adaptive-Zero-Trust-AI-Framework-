@@ -12,10 +12,12 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [localError, setLocalError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLocalError('')
+    setSuccessMessage('')
 
     if (!email || !password || !confirmPassword) {
       setLocalError('Please fill in all fields')
@@ -34,9 +36,18 @@ export default function RegisterPage() {
 
     try {
       await register(email, password)
-      router.push('/auth/login')
+      setSuccessMessage('Account created successfully! Please sign in to continue.')
+      window.setTimeout(() => router.replace('/auth/login'), 1200)
     } catch (err: any) {
-      setLocalError(err.response?.data?.detail || 'Registration failed')
+      const status = err?.response?.status
+      const detail = err?.response?.data?.detail
+      setLocalError(
+        status === 409 || (typeof detail === 'string' && detail.toLowerCase().includes('already'))
+          ? 'An account with this email already exists.'
+          : status >= 500
+            ? 'Unable to create your account right now. Please try again later.'
+            : detail || (err?.request ? 'Unable to connect to the server. Please try again.' : 'Registration failed'),
+      )
     }
   }
 
@@ -106,8 +117,13 @@ export default function RegisterPage() {
 
             {/* Error Message */}
             {(localError || error) && (
-              <div className="bg-red-900/20 border border-red-700 rounded-lg p-3 text-red-200 text-sm">
+              <div role="alert" className="bg-red-900/20 border border-red-700 rounded-lg p-3 text-red-200 text-sm">
                 {localError || error}
+              </div>
+            )}
+            {successMessage && (
+              <div role="status" className="rounded-lg border border-emerald-700 bg-emerald-900/20 p-3 text-sm text-emerald-200">
+                {successMessage}
               </div>
             )}
 

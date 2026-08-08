@@ -57,9 +57,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   register: async (email, password, name) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await apiClient.register(email, password, name)
-      const userData: User = response.data
-      set({ user: userData, error: null })
+      await apiClient.register(email, password, name)
+      // Registration does not authenticate the user. The caller should route
+      // to sign-in after the backend confirms the account was created.
+      set({ user: null, accessToken: null, refreshToken: null, error: null })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Registration failed'
       set({ error: message })

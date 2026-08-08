@@ -48,7 +48,9 @@ const nextConfig = {
     }
 
     return {
-      beforeFiles: [
+      // Let local Next.js route handlers (such as /api/admin/login) resolve
+      // before proxying the remaining API surface to FastAPI.
+      afterFiles: [
         {
           source: "/api/:path*",
           destination: `${backendApiUrl}/api/:path*`,
