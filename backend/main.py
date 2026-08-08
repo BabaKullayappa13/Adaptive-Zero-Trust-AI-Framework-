@@ -26,20 +26,36 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 import joblib
-from performance_tracker import PerformanceTracker, timing_decorator
-from research_report import generate_comparison_report
-from federated_learning import FederatedLearningService
-from hybrid_cloud import HybridCloudService
-from zero_trust_policy import ZeroTrustPolicyEngine
-from response_time_analysis import ResponseTimeAnalysis
-from research_evaluation import ResearchEvaluationModule
-from ieee_baseline_comparison import IEEEBaselineComparison
-from research_dashboard import ResearchDashboard
-from explainable_ai import ExplainableAIService
-from automatic_reports import AutomaticReportsService
-from api_documentation import APIDocumentationService
-from rate_limiter import check_rate_limit
-from password_reset import PasswordResetService
+try:
+    from .performance_tracker import PerformanceTracker, timing_decorator
+    from .research_report import generate_comparison_report
+    from .federated_learning import FederatedLearningService
+    from .hybrid_cloud import HybridCloudService
+    from .zero_trust_policy import ZeroTrustPolicyEngine
+    from .response_time_analysis import ResponseTimeAnalysis
+    from .research_evaluation import ResearchEvaluationModule
+    from .ieee_baseline_comparison import IEEEBaselineComparison
+    from .research_dashboard import ResearchDashboard
+    from .explainable_ai import ExplainableAIService
+    from .automatic_reports import AutomaticReportsService
+    from .api_documentation import APIDocumentationService
+    from .rate_limiter import check_rate_limit
+    from .password_reset import PasswordResetService
+except ImportError:
+    from performance_tracker import PerformanceTracker, timing_decorator
+    from research_report import generate_comparison_report
+    from federated_learning import FederatedLearningService
+    from hybrid_cloud import HybridCloudService
+    from zero_trust_policy import ZeroTrustPolicyEngine
+    from response_time_analysis import ResponseTimeAnalysis
+    from research_evaluation import ResearchEvaluationModule
+    from ieee_baseline_comparison import IEEEBaselineComparison
+    from research_dashboard import ResearchDashboard
+    from explainable_ai import ExplainableAIService
+    from automatic_reports import AutomaticReportsService
+    from api_documentation import APIDocumentationService
+    from rate_limiter import check_rate_limit
+    from password_reset import PasswordResetService
 import time
 
 # ============================================================================
