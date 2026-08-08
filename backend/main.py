@@ -15,7 +15,7 @@ from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import psycopg
 from psycopg import AsyncConnection
@@ -121,7 +121,22 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
     return response
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    print(f"[v0] Unhandled backend error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return {"service": "zero-trust-backend", "status": "ok", "docs": "/docs"}
+
+@app.head("/", include_in_schema=False)
+async def root_head():
+    return Response(status_code=200)
 
 @app.middleware("http")
 async def request_timing_middleware(request: Request, call_next):
@@ -424,7 +439,8 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ENDPOINT: AUTHENTICATION - LOGIN
@@ -503,7 +519,8 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ENDPOINT: AUTHENTICATION - REFRESH TOKEN
@@ -548,7 +565,8 @@ async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depen
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ENDPOINT: CURRENT USER
@@ -670,7 +688,8 @@ async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_curr
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ENDPOINT: MFA VERIFY & ENABLE
@@ -703,7 +722,8 @@ async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_c
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ENDPOINT: TRUST SCORE CALCULATION
@@ -770,7 +790,8 @@ async def get_trust_score(user_id: str, current_user_id: str = Depends(get_curre
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ENDPOINT: RISK DETECTION
@@ -856,7 +877,8 @@ async def detect_risk(
             "recommendation": "ALLOW" if risk_score < 60 else "REQUIRE_MFA" if risk_score < 80 else "BLOCK"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ENDPOINT: AUDIT LOGS
@@ -895,7 +917,8 @@ async def get_audit_logs(user_id: str, limit: int = 50, current_user_id: str = D
             ]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # DASHBOARD SUMMARY AND SIMULATION STATUS
@@ -1006,7 +1029,8 @@ async def export_csv(metric_type: str = "http_request", hours: int = 24, admin_i
         return {"csv": csv_content, "filename": f"metrics_{metric_type}_{datetime.utcnow().isoformat()}.csv"}
     except Exception as e:
         print(f"[v0] Failed to export CSV: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/admin/metrics/research-report")
 async def research_report(hours: int = 24, admin_id: str = Depends(is_admin)):
@@ -1028,7 +1052,8 @@ async def research_report(hours: int = 24, admin_id: str = Depends(is_admin)):
         }
     except Exception as e:
         print(f"[v0] Failed to generate research report: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # FEDERATED LEARNING ENDPOINTS (Feature 1)
@@ -1055,7 +1080,8 @@ async def create_federated_round(admin_id: str = Depends(is_admin)):
         return round_result
     except Exception as e:
         print(f"[v0] Failed to create federated round: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/federated/rounds/{round_id}/participants")
 async def register_federated_participant(round_id: int, org_id: int, admin_id: str = Depends(is_admin)):
@@ -1068,7 +1094,8 @@ async def register_federated_participant(round_id: int, org_id: int, admin_id: s
         return result
     except Exception as e:
         print(f"[v0] Failed to register participant: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/federated/participants/{participant_id}/submit")
 async def submit_local_model(participant_id: int, accuracy: float, loss: float, 
@@ -1084,7 +1111,8 @@ async def submit_local_model(participant_id: int, accuracy: float, loss: float,
         return result
     except Exception as e:
         print(f"[v0] Failed to submit local model: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/federated/rounds/{round_id}/aggregate")
 async def aggregate_federated_models(round_id: int, admin_id: str = Depends(is_admin)):
@@ -1097,7 +1125,8 @@ async def aggregate_federated_models(round_id: int, admin_id: str = Depends(is_a
         return result
     except Exception as e:
         print(f"[v0] Failed to aggregate models: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/federated/rounds/{round_id}/status")
 async def get_federated_round_status(round_id: int, admin_id: str = Depends(is_admin)):
@@ -1110,7 +1139,8 @@ async def get_federated_round_status(round_id: int, admin_id: str = Depends(is_a
         return result
     except Exception as e:
         print(f"[v0] Failed to get round status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/federated/rounds/history")
 async def get_federated_history(limit: int = 10, admin_id: str = Depends(is_admin)):
@@ -1123,7 +1153,8 @@ async def get_federated_history(limit: int = 10, admin_id: str = Depends(is_admi
         return result
     except Exception as e:
         print(f"[v0] Failed to get history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/federated/models")
 async def get_federated_models(limit: int = 10, admin_id: str = Depends(is_admin)):
@@ -1136,7 +1167,8 @@ async def get_federated_models(limit: int = 10, admin_id: str = Depends(is_admin
         return result
     except Exception as e:
         print(f"[v0] Failed to get models: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # HYBRID CLOUD ENDPOINTS (Feature 2)
@@ -1157,7 +1189,8 @@ async def register_cloud_provider(name: str, cloud_type: str, provider: str,
         return result
     except Exception as e:
         print(f"[v0] Failed to register cloud provider: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/cloud/active")
 async def get_active_clouds(cloud_type: Optional[str] = None, admin_id: str = Depends(is_admin)):
@@ -1170,7 +1203,8 @@ async def get_active_clouds(cloud_type: Optional[str] = None, admin_id: str = De
         return result
     except Exception as e:
         print(f"[v0] Failed to get active clouds: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/cloud/topology")
 async def get_cloud_topology(admin_id: str = Depends(is_admin)):
@@ -1183,7 +1217,8 @@ async def get_cloud_topology(admin_id: str = Depends(is_admin)):
         return result
     except Exception as e:
         print(f"[v0] Failed to get topology: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/cloud/{cloud_id}/health")
 async def get_cloud_health(cloud_id: int, admin_id: str = Depends(is_admin)):
@@ -1196,7 +1231,8 @@ async def get_cloud_health(cloud_id: int, admin_id: str = Depends(is_admin)):
         return result
     except Exception as e:
         print(f"[v0] Failed to get cloud health: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/cloud/{cloud_id}/health-check")
 async def record_cloud_health(cloud_id: int, latency_ms: float, availability_percent: float,
@@ -1213,7 +1249,8 @@ async def record_cloud_health(cloud_id: int, latency_ms: float, availability_per
         return result
     except Exception as e:
         print(f"[v0] Failed to record health: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/cloud/{cloud_type}/failover")
 async def trigger_cloud_failover(cloud_type: str, admin_id: str = Depends(is_admin)):
@@ -1226,7 +1263,8 @@ async def trigger_cloud_failover(cloud_type: str, admin_id: str = Depends(is_adm
         return result
     except Exception as e:
         print(f"[v0] Failed to trigger failover: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/cloud/sync-history")
 async def get_cloud_sync_history(cloud_id: Optional[int] = None, hours: int = 24,
@@ -1240,7 +1278,8 @@ async def get_cloud_sync_history(cloud_id: Optional[int] = None, hours: int = 24
         return result
     except Exception as e:
         print(f"[v0] Failed to get sync history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # ZERO TRUST POLICY ENDPOINTS (Feature 3)
@@ -1260,7 +1299,8 @@ async def create_zero_trust_policy(name: str, description: str, policy_type: str
         return result
     except Exception as e:
         print(f"[v0] Failed to create policy: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/policies/{policy_id}/rules")
 async def add_policy_rule(policy_id: int, rule_name: str, condition_type: str,
@@ -1277,7 +1317,8 @@ async def add_policy_rule(policy_id: int, rule_name: str, condition_type: str,
         return result
     except Exception as e:
         print(f"[v0] Failed to add rule: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/policies/{policy_id}/evaluate")
 async def evaluate_policy(policy_id: int, device_fingerprint: str, location: str,
@@ -1294,7 +1335,8 @@ async def evaluate_policy(policy_id: int, device_fingerprint: str, location: str
         return result
     except Exception as e:
         print(f"[v0] Failed to evaluate policy: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/policies/{policy_id}")
 async def get_policy_details(policy_id: int, admin_id: str = Depends(is_admin)):
@@ -1307,7 +1349,8 @@ async def get_policy_details(policy_id: int, admin_id: str = Depends(is_admin)):
         return result
     except Exception as e:
         print(f"[v0] Failed to get policy: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/policies/active")
 async def get_active_policies(admin_id: str = Depends(is_admin)):
@@ -1320,7 +1363,8 @@ async def get_active_policies(admin_id: str = Depends(is_admin)):
         return result
     except Exception as e:
         print(f"[v0] Failed to get policies: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/sessions/risk-assessment")
 async def assess_session_risk(device_id: Optional[int] = None,
@@ -1338,7 +1382,8 @@ async def assess_session_risk(device_id: Optional[int] = None,
         return result
     except Exception as e:
         print(f"[v0] Failed to assess risk: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # RESPONSE TIME ANALYSIS ENDPOINTS (Feature 5)
@@ -1359,7 +1404,8 @@ async def record_operation_time(operation_type: str, duration_ms: float,
         return result
     except Exception as e:
         print(f"[v0] Failed to record metric: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/metrics/operation/{operation_type}")
 async def get_operation_stats(operation_type: str, hours: int = 24,
@@ -1373,7 +1419,8 @@ async def get_operation_stats(operation_type: str, hours: int = 24,
         return result
     except Exception as e:
         print(f"[v0] Failed to get stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/metrics/summary")
 async def get_metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)):
@@ -1386,7 +1433,8 @@ async def get_metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)
         return result
     except Exception as e:
         print(f"[v0] Failed to get summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/metrics/hourly")
 async def get_hourly_metrics(operation_type: Optional[str] = None, days: int = 7,
@@ -1400,7 +1448,8 @@ async def get_hourly_metrics(operation_type: Optional[str] = None, days: int = 7
         return result
     except Exception as e:
         print(f"[v0] Failed to get hourly metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/metrics/daily")
 async def get_daily_metrics(operation_type: Optional[str] = None, days: int = 30,
@@ -1414,7 +1463,8 @@ async def get_daily_metrics(operation_type: Optional[str] = None, days: int = 30
         return result
     except Exception as e:
         print(f"[v0] Failed to get daily metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/metrics/weekly")
 async def get_weekly_metrics(days: int = 90, admin_id: str = Depends(is_admin)):
@@ -1427,7 +1477,8 @@ async def get_weekly_metrics(days: int = 90, admin_id: str = Depends(is_admin)):
         return result
     except Exception as e:
         print(f"[v0] Failed to get weekly metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/metrics/slowest")
 async def get_slowest_operations(limit: int = 20, admin_id: str = Depends(is_admin)):
@@ -1440,7 +1491,8 @@ async def get_slowest_operations(limit: int = 20, admin_id: str = Depends(is_adm
         return result
     except Exception as e:
         print(f"[v0] Failed to get slowest: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/metrics/trend/{operation_type}")
 async def get_performance_trend(operation_type: str, hours: int = 48,
@@ -1454,7 +1506,8 @@ async def get_performance_trend(operation_type: str, hours: int = 48,
         return result
     except Exception as e:
         print(f"[v0] Failed to get trend: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # RESEARCH EVALUATION ENDPOINTS (Feature 4)
@@ -1474,7 +1527,8 @@ async def record_auth_metrics(true_positives: int, true_negatives: int,
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/authentication-metrics/history")
 async def get_auth_metrics_history(days: int = 30, admin_id: str = Depends(is_admin)):
@@ -1486,7 +1540,8 @@ async def get_auth_metrics_history(days: int = 30, admin_id: str = Depends(is_ad
         result = await research_evaluation_module.get_authentication_metrics_history(days)
         return {"metrics": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/metrics/latest")
 async def get_latest_auth_metrics(admin_id: str = Depends(is_admin)):
@@ -1498,7 +1553,8 @@ async def get_latest_auth_metrics(admin_id: str = Depends(is_admin)):
         result = await research_evaluation_module.get_latest_auth_metrics()
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/threats/summary")
 async def get_threat_summary(admin_id: str = Depends(is_admin)):
@@ -1510,7 +1566,8 @@ async def get_threat_summary(admin_id: str = Depends(is_admin)):
         result = await research_evaluation_module.get_threat_intelligence_summary()
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # IEEE BASELINE COMPARISON ENDPOINTS (Feature 6)
@@ -1530,7 +1587,8 @@ async def record_baseline_comparison(metric_name: str, our_value: float,
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/baseline-comparison/report")
 async def get_baseline_report(admin_id: str = Depends(is_admin)):
@@ -1542,7 +1600,8 @@ async def get_baseline_report(admin_id: str = Depends(is_admin)):
         result = await ieee_baseline_comparison.get_comparison_report()
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/compliance-score")
 async def get_compliance_score(admin_id: str = Depends(is_admin)):
@@ -1554,7 +1613,8 @@ async def get_compliance_score(admin_id: str = Depends(is_admin)):
         result = await ieee_baseline_comparison.generate_compliance_score()
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # RESEARCH DASHBOARD ENDPOINTS (Feature 8)
@@ -1570,7 +1630,8 @@ async def get_dashboard_summary(days: int = 30, admin_id: str = Depends(is_admin
         result = await research_dashboard.get_dashboard_summary(days)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/dashboard/auth-trends")
 async def get_auth_trends(days: int = 30, admin_id: str = Depends(is_admin)):
@@ -1582,7 +1643,8 @@ async def get_auth_trends(days: int = 30, admin_id: str = Depends(is_admin)):
         result = await research_dashboard.get_authentication_trends(days)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/dashboard/threat-analytics")
 async def get_threat_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
@@ -1594,7 +1656,8 @@ async def get_threat_analytics(days: int = 30, admin_id: str = Depends(is_admin)
         result = await research_dashboard.get_threat_analytics(days)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/dashboard/user-behavior")
 async def get_user_behavior(days: int = 30, admin_id: str = Depends(is_admin)):
@@ -1606,7 +1669,8 @@ async def get_user_behavior(days: int = 30, admin_id: str = Depends(is_admin)):
         result = await research_dashboard.get_user_behavior_analysis(days)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/dashboard/device-analytics")
 async def get_device_analytics(days: int = 30, admin_id: str = Depends(is_admin)):
@@ -1618,7 +1682,8 @@ async def get_device_analytics(days: int = 30, admin_id: str = Depends(is_admin)
         result = await research_dashboard.get_device_analytics(days)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/research/dashboard/risk-distribution")
 async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin)):
@@ -1630,7 +1695,8 @@ async def get_risk_distribution(days: int = 30, admin_id: str = Depends(is_admin
         result = await research_dashboard.get_risk_distribution(days)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[v0] Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
 # EXPLAINABLE AI, REPORTING & API DOCUMENTATION (Phase 4)
