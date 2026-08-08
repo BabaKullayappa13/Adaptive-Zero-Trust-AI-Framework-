@@ -56,7 +56,16 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
-ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
+configured_origins = os.getenv("ALLOWED_ORIGINS")
+if configured_origins is None and os.getenv("ENVIRONMENT", "development").lower() == "production":
+    raise ValueError("ALLOWED_ORIGINS environment variable is required in production")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in (configured_origins or "http://localhost:3000").split(",")
+    if origin.strip()
+]
+if "*" in ALLOWED_ORIGINS:
+    raise ValueError("ALLOWED_ORIGINS must not contain '*' when credentials are enabled")
 security = HTTPBearer(auto_error=False)
 
 # Security
