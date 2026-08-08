@@ -78,6 +78,10 @@ class APIClient {
     return this.client.post<T>(url.replace(/^\/api\//, '/'), data, config)
   }
 
+  async put<T = any>(url: string, data?: unknown, config?: Parameters<AxiosInstance['put']>[2]) {
+    return this.client.put<T>(url.replace(/^\/api\//, '/'), data, config)
+  }
+
   async patch<T = any>(url: string, data?: unknown, config?: Parameters<AxiosInstance['patch']>[2]) {
     return this.client.patch<T>(url.replace(/^\/api\//, '/'), data, config)
   }
