@@ -12,11 +12,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </head>
-      <body className="bg-background text-foreground">
+    <html lang="en" className="bg-[#060b14]">
+      <body className="bg-[#060b14] text-foreground cyber-grid">
         {children}
       </body>
     </html>

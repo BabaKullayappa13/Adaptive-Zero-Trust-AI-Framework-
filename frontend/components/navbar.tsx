@@ -2,75 +2,12 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { LogOut, Settings } from 'lucide-react'
+import { Bell, LogOut, Settings, ShieldCheck } from 'lucide-react'
 
-interface NavbarProps {
-  user: any
-  onLogout: () => void
-}
+interface NavbarProps { user: { email?: string }; onLogout: () => void }
 
 export default function Navbar({ user, onLogout }: NavbarProps) {
   const router = useRouter()
-
-  const handleLogout = () => {
-    onLogout()
-    router.push('/')
-  }
-
-  return (
-    <nav className="border-b border-slate-700 bg-slate-900/50 backdrop-blur-sm">
-      <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-        {/* Logo */}
-        <Link href="/dashboard" className="text-2xl font-bold text-primary">
-          🔐 Zero Trust AI
-        </Link>
-
-        {/* Navigation Links */}
-        <div className="flex items-center gap-8">
-          <Link href="/dashboard" className="text-foreground hover:text-primary transition font-medium">
-            Dashboard
-          </Link>
-          <Link href="/security" className="text-foreground hover:text-primary transition font-medium">
-            Security
-          </Link>
-          <Link href="/policies" className="text-foreground hover:text-primary transition font-medium">
-            Policies
-          </Link>
-        </div>
-
-        {/* User Menu */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary flex items-center justify-center">
-              <span className="text-sm font-bold text-primary">{user?.email?.[0]?.toUpperCase()}</span>
-            </div>
-            <div className="hidden sm:block">
-              <p className="text-sm font-medium text-foreground truncate">{user?.email}</p>
-              <p className="text-xs text-slate-400">User</p>
-            </div>
-          </div>
-
-          {/* Settings Button */}
-          <button
-            type="button"
-            onClick={() => router.push('/security')}
-            className="p-2 hover:bg-slate-800 rounded-lg transition"
-            title="Security settings"
-            aria-label="Open security settings"
-          >
-            <Settings size={20} className="text-slate-400" />
-          </button>
-
-          {/* Logout Button */}
-          <button
-            onClick={handleLogout}
-            className="p-2 hover:bg-red-900/20 rounded-lg transition text-red-400"
-            title="Logout"
-          >
-            <LogOut size={20} />
-          </button>
-        </div>
-      </div>
-    </nav>
-  )
+  const handleLogout = () => { onLogout(); router.push('/') }
+  return <nav className="sticky top-0 z-20 border-b border-white/10 bg-[#060b14]/90 backdrop-blur-xl"><div className="mx-auto flex max-w-[1480px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8"><Link href="/dashboard" className="flex items-center gap-3 text-sm font-semibold tracking-wide text-slate-100"><span className="flex size-9 items-center justify-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 text-cyan-300"><ShieldCheck className="size-5" /></span><span className="hidden sm:inline">ADAPTIVE ZERO TRUST <span className="text-cyan-300">AI</span></span></Link><div className="hidden items-center gap-6 text-xs font-medium text-slate-400 md:flex"><Link href="/dashboard" className="transition hover:text-cyan-300">Overview</Link><Link href="/security" className="transition hover:text-cyan-300">Security</Link><Link href="/policies" className="transition hover:text-cyan-300">Policies</Link><Link href="/federated" className="transition hover:text-cyan-300">Federated learning</Link></div><div className="flex items-center gap-2"><button type="button" aria-label="Notifications" className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[.06] hover:text-cyan-300"><Bell className="size-4" /></button><button type="button" aria-label="Security settings" onClick={() => router.push('/security')} className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[.06] hover:text-cyan-300"><Settings className="size-4" /></button><div className="hidden border-l border-white/10 pl-3 sm:block"><p className="max-w-40 truncate text-xs font-medium text-slate-200">{user?.email}</p><p className="text-[10px] uppercase tracking-widest text-slate-500">Operator</p></div><button type="button" onClick={handleLogout} aria-label="Log out" className="rounded-lg p-2 text-rose-300 transition hover:bg-rose-400/10"><LogOut className="size-4" /></button></div></div></nav>
 }
