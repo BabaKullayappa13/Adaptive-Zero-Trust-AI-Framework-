@@ -8,5 +8,8 @@
     "dev": "pnpm --filter zero-trust-ai-frontend dev",
     "build": "pnpm --filter zero-trust-ai-frontend build",
     "start": "pnpm --filter zero-trust-ai-frontend start"
+  },
+  "dependencies": {
+    "next": "^14.0.0"
   }
 }
