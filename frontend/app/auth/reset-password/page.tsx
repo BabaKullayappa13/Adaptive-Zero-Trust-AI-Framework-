@@ -24,8 +24,9 @@ export default function ResetPasswordPage() {
       await apiClient.resetPassword(email, token, password)
       router.replace('/auth/login?reset=success')
     } catch (requestError: any) {
-      const detail = requestError?.response?.data?.detail
-      setError(typeof detail === 'string' ? detail : 'Unable to reset your password. Please try again.')
+      setError(requestError?.response?.status === 429
+        ? 'Too many requests. Please wait and try again.'
+        : 'Unable to reset your password. The link may be invalid or expired.')
     } finally {
       setIsLoading(false)
     }
