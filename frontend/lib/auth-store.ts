@@ -60,8 +60,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       const response = await apiClient.register(email, password, name)
       const userData: User = response.data
       set({ user: userData, error: null })
-    } catch (error: any) {
-      const message = error.response?.data?.detail || 'Registration failed'
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Registration failed'
       set({ error: message })
       throw error
     } finally {

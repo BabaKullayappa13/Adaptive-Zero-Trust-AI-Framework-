@@ -78,6 +78,10 @@ export default function LoginPage() {
               />
             </div>
 
+            <div className="flex justify-end">
+              <Link href="/auth/forgot-password" className="text-sm text-primary hover:underline">Forgot password?</Link>
+            </div>
+
             {/* Error Message */}
             {(localError || error) && (
               <div className="bg-red-900/20 border border-red-700 rounded-lg p-3 text-red-200 text-sm">

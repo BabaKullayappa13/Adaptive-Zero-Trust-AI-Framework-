@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios'
 
 const API_BASE = '/api'
 
+
 class APIClient {
   private client: AxiosInstance
 
@@ -27,8 +28,12 @@ class APIClient {
       (response) => response,
       async (error) => {
         if (error.response?.status === 401) {
-          // Token expired - attempt refresh
+          // Never refresh the refresh request itself or retry a request twice.
           if (typeof window !== 'undefined') {
+            const failedUrl = String(error.config?.url ?? '')
+            if (failedUrl.endsWith('/auth/refresh') || failedUrl.endsWith('/auth/login') || failedUrl.endsWith('/auth/register')) {
+              return Promise.reject(error)
+            }
             const refreshToken = localStorage.getItem('refresh_token')
             if (refreshToken) {
               try {
@@ -100,6 +105,14 @@ class APIClient {
 
   async logout() {
     return this.client.post('/auth/logout')
+  }
+
+  async forgotPassword(email: string) {
+    return this.client.post('/auth/forgot-password', { email })
+  }
+
+  async resetPassword(email: string, token: string, newPassword: string) {
+    return this.client.post('/auth/reset-password', { email, token, new_password: newPassword })
   }
 
   async getDashboardSummary() {

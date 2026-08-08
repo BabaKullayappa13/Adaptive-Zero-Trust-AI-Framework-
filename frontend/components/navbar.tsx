@@ -46,12 +46,18 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
             </div>
             <div className="hidden sm:block">
               <p className="text-sm font-medium text-foreground truncate">{user?.email}</p>
-              <p className="text-xs text-slate-400">Admin</p>
+              <p className="text-xs text-slate-400">User</p>
             </div>
           </div>
 
           {/* Settings Button */}
-          <button className="p-2 hover:bg-slate-800 rounded-lg transition">
+          <button
+            type="button"
+            onClick={() => router.push('/security')}
+            className="p-2 hover:bg-slate-800 rounded-lg transition"
+            title="Security settings"
+            aria-label="Open security settings"
+          >
             <Settings size={20} className="text-slate-400" />
           </button>
 
