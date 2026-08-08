@@ -1,4 +1,10 @@
 /** @type {import('next').NextConfig} */
+const backendApiUrl = process.env.BACKEND_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : undefined)
+
+if (!backendApiUrl) {
+  throw new Error("BACKEND_API_URL must be configured for production builds")
+}
+
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
@@ -9,7 +15,7 @@ const nextConfig = {
       beforeFiles: [
         {
           source: "/api/:path*",
-          destination: `${process.env.BACKEND_API_URL || "http://localhost:8000"}/api/:path*`,
+          destination: `${backendApiUrl}/api/:path*`,
         },
       ],
     }
