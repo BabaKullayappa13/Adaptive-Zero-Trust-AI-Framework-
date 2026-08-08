@@ -1,6 +1,7 @@
 {
-  "buildCommand": "pnpm --dir frontend build",
-  "devCommand": "pnpm --dir frontend dev",
+  "rootDirectory": "frontend",
+  "buildCommand": "pnpm build",
+  "devCommand": "pnpm dev",
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": "nextjs"
 }
