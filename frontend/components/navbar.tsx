@@ -2,13 +2,17 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Bell, ChevronRight, LayoutDashboard, LogOut, Network, Settings, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Activity, Bell, ChevronRight, ClipboardList, LayoutDashboard, LockKeyhole, LogOut, Network, Settings, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react'
 
 interface NavbarProps { user: { email?: string }; onLogout: () => void }
 const links = [
   { href: '/dashboard', label: 'Command center', icon: LayoutDashboard },
-  { href: '/security', label: 'Security posture', icon: ShieldCheck },
-  { href: '/policies', label: 'Policy control', icon: SlidersHorizontal },
+  { href: '/dashboard/threats', label: 'Threat intelligence', icon: ShieldCheck },
+  { href: '/dashboard/xai', label: 'Explainable AI', icon: Sparkles },
+  { href: '/dashboard/continuous-authentication', label: 'Trust monitor', icon: LockKeyhole },
+  { href: '/dashboard/security-events', label: 'Security events', icon: Activity },
+  { href: '/dashboard/audit', label: 'Audit logs', icon: ClipboardList },
+  { href: '/dashboard/policies', label: 'Policy control', icon: SlidersHorizontal },
   { href: '/federated', label: 'Federated AI', icon: Network },
 ]
 const adminLink = { href: '/admin', label: 'Admin console', icon: Settings }
@@ -25,6 +29,6 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
       <div className="mt-4 flex items-center gap-3 border-t border-white/[.08] pt-4"><div className="flex size-9 items-center justify-center rounded-full bg-cyan-300/15 text-xs font-bold text-cyan-200">{user?.email?.slice(0, 1).toUpperCase()}</div><div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-200">{user?.email}</p><p className="text-[10px] uppercase tracking-widest text-slate-500">Operator</p></div><button type="button" onClick={handleLogout} aria-label="Log out" className="rounded-lg p-2 text-slate-500 transition hover:bg-rose-400/10 hover:text-rose-300"><LogOut className="size-4" /></button></div>
     </aside>
     <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/[.08] bg-[#090f1e]/90 px-4 py-3 backdrop-blur-xl lg:hidden"><Link href="/dashboard" className="flex items-center gap-2 text-sm font-bold text-slate-100"><ShieldCheck className="size-5 text-cyan-300" />AZT <span className="text-cyan-300">AI</span></Link><div className="flex items-center gap-1"><button type="button" aria-label="Notifications" className="rounded-lg p-2 text-slate-400 hover:bg-white/[.06] hover:text-cyan-300"><Bell className="size-4" /></button><button type="button" aria-label="Security settings" onClick={() => router.push('/security')} className="rounded-lg p-2 text-slate-400 hover:bg-white/[.06] hover:text-cyan-300"><Settings className="size-4" /></button><button type="button" aria-label="Log out" onClick={handleLogout} className="rounded-lg p-2 text-slate-400 hover:bg-rose-400/10 hover:text-rose-300"><LogOut className="size-4" /></button></div></header>
-    <nav className="fixed inset-x-4 bottom-4 z-30 flex items-center justify-around rounded-2xl border border-white/10 bg-[#101a30]/95 p-2 shadow-2xl backdrop-blur-xl lg:hidden" aria-label="Mobile navigation">{links.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-label={label} className={`flex size-11 items-center justify-center rounded-xl ${pathname === href ? 'bg-cyan-300/15 text-cyan-200' : 'text-slate-500'}`}><Icon className="size-5" /></Link>)}</nav>
+    <nav className="fixed inset-x-4 bottom-4 z-30 flex items-center justify-around rounded-2xl border border-white/10 bg-[#101a30]/95 p-2 shadow-2xl backdrop-blur-xl lg:hidden" aria-label="Mobile navigation">{links.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-label={label} className={`flex size-11 items-center justify-center rounded-xl ${pathname === href || pathname.startsWith(`${href}/`) ? 'bg-cyan-300/15 text-cyan-200' : 'text-slate-500'}`}><Icon className="size-5" /></Link>)}</nav>
   </>
 }
