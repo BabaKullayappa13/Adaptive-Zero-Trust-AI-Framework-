@@ -22,7 +22,7 @@ interface AuthState {
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   register: (email: string, password: string, name?: string) => Promise<void>
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string, totpCode?: string) => Promise<void>
   logout: () => Promise<void>
   setupMFA: (userId: string) => Promise<any>
   verifyMFA: (userId: string, totpCode: string) => Promise<void>
@@ -69,10 +69,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  login: async (email, password) => {
+  login: async (email, password, totpCode) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await apiClient.login(email, password)
+      const response = await apiClient.login(email, password, totpCode)
       const { access_token, refresh_token } = response.data
       set({ accessToken: access_token, refreshToken: refresh_token, isInitialized: true, error: null })
       if (typeof window !== 'undefined') {
