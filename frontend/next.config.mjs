@@ -1,9 +1,5 @@
 /** @type {import('next').NextConfig} */
-const backendApiUrl = process.env.BACKEND_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : undefined)
-
-if (!backendApiUrl) {
-  throw new Error("BACKEND_API_URL must be configured for production builds")
-}
+const backendApiUrl = process.env.BACKEND_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : null)
 
 const nextConfig = {
   reactStrictMode: true,
@@ -11,6 +7,10 @@ const nextConfig = {
     optimizePackageImports: ["lucide-react", "recharts"],
   },
   async rewrites() {
+    if (!backendApiUrl) {
+      return []
+    }
+
     return {
       beforeFiles: [
         {
