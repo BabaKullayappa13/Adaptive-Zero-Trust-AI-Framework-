@@ -86,8 +86,12 @@ class APIClient {
     return this.client.post('/auth/register', { email, password, name })
   }
 
-  async login(email: string, password: string) {
-    return this.client.post('/auth/login', { email, password })
+  async login(email: string, password: string, totpCode?: string) {
+    return this.client.post('/auth/login', {
+      email,
+      password,
+      ...(totpCode ? { totp_code: totpCode } : {}),
+    })
   }
 
   async getCurrentUser() {
@@ -117,7 +121,7 @@ class APIClient {
 
   // Risk detection endpoints
   async detectRisk(userId: string, sessionData: Record<string, any>) {
-    return this.client.post('/risk/detect', { user_id: userId, ...sessionData })
+    return this.client.post('/risk/detect', { user_id: userId, session_data: sessionData })
   }
 
   // Audit logs endpoints
@@ -148,7 +152,9 @@ class APIClient {
   }
 
   async exportMetricsCSV(metricType: string = 'http_request', hours: number = 24) {
-    return this.client.get(`/admin/metrics/export/csv?metric_type=${metricType}&hours=${hours}`)
+    return this.client.post('/admin/metrics/export/csv', undefined, {
+      params: { metric_type: metricType, hours },
+    })
   }
 
   async getResearchReport(hours: number = 24) {
@@ -169,6 +175,14 @@ class APIClient {
 
   async explainWhatIf(payload: Record<string, unknown>) {
     return this.client.post('/explainability/what-if', payload)
+  }
+
+  async getActivePolicies() {
+    return this.client.get('/policies/active')
+  }
+
+  async getPolicyDetails(policyId: number) {
+    return this.client.get(`/policies/${policyId}`)
   }
 
   async getReports(reportType?: string, days: number = 30) {
