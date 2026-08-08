@@ -23,8 +23,9 @@ class MLModelTrainer:
     def load_training_data(self) -> Tuple[np.ndarray, np.ndarray]:
         """Load and prepare training data"""
         try:
-            # In production, this would load from database or files
-            # For now, generate synthetic training data for authentication anomalies
+            # This fallback is intentionally synthetic and must not be presented as
+            # production validation data. Production training should replace this
+            # method with persisted, consented telemetry and a reproducible split.
             n_samples = 1000
             n_features = 8
             

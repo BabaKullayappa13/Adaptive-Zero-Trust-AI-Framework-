@@ -142,6 +142,21 @@ class APIClient {
     return this.client.post('/risk/detect', { user_id: userId, session_data: sessionData })
   }
 
+  async getContinuousStatus() {
+    return this.client.get('/continuous/status')
+  }
+
+  async submitBehaviorEvent(features: Record<string, unknown>, sessionId?: number) {
+    return this.client.post('/continuous/events', {
+      features,
+      ...(sessionId ? { session_id: sessionId } : {}),
+    })
+  }
+
+  async completeContinuousStepUp(sessionId: number, totpCode: string) {
+    return this.client.post('/continuous/step-up', { session_id: sessionId, totp_code: totpCode })
+  }
+
   // Audit logs endpoints
   async getAuditLogs(userId: string, limit: number = 50) {
     return this.client.get(`/audit/logs/${userId}`, { params: { limit } })

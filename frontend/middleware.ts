@@ -7,7 +7,8 @@ async function validAdminSession(value: string | undefined) {
   const [issuedAt, providedSignature] = value.split('.')
   const timestamp = Number(issuedAt)
   if (!Number.isFinite(timestamp) || Math.floor(Date.now() / 1000) - timestamp > SESSION_TTL_SECONDS || !providedSignature) return false
-  const secret = process.env.ADMIN_SESSION_SECRET || process.env.SECRET_KEY || 'development-only-secret'
+  const secret = process.env.ADMIN_SESSION_SECRET || process.env.SECRET_KEY_3 || process.env.ADMIN_ACCESS_KEY_4
+  if (!secret) return false
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
   const signatureBytes = new Uint8Array(providedSignature.match(/.{1,2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? [])
   return crypto.subtle.verify('HMAC', key, signatureBytes, new TextEncoder().encode(issuedAt))
