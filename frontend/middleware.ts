@@ -16,10 +16,20 @@ async function validAdminSession(value: string | undefined) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  if (pathname.startsWith('/admin') && pathname !== '/admin/login' && !(await validAdminSession(request.cookies.get('admin_session')?.value))) {
+  const protectedPage = pathname.startsWith('/admin') && pathname !== '/admin/login'
+  const protectedApi = pathname.startsWith('/api/admin') && !pathname.endsWith('/login')
+  const valid = await validAdminSession(request.cookies.get('admin_session')?.value)
+
+  if ((protectedPage || protectedApi) && !valid) {
+    if (protectedApi) {
+      return NextResponse.json({ detail: 'Admin authentication required.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
+    }
     return NextResponse.redirect(new URL('/admin/login', request.url))
   }
-  return NextResponse.next()
+
+  const response = NextResponse.next()
+  if (protectedPage || protectedApi) response.headers.set('Cache-Control', 'no-store, max-age=0')
+  return response
 }
 
-export const config = { matcher: ['/admin/:path*'] }
+export const config = { matcher: ['/admin/:path*', '/api/admin/:path*'] }
