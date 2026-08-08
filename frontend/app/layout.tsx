@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Zero Trust AI Framework',
-  description: 'Adaptive continuous multi-factor authentication with AI-powered risk detection',
+  title: 'Adaptive Zero Trust AI | Security Operations',
+  description: 'Premium continuous authentication, adaptive policy enforcement, and explainable security intelligence.',
 }
 
 export default function RootLayout({
@@ -12,8 +12,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="bg-[#060b14]">
-      <body className="bg-[#060b14] text-foreground cyber-grid">
+    <html lang="en" className="bg-slate-950">
+      <body className="bg-slate-950 text-foreground cyber-grid">
         {children}
       </body>
     </html>

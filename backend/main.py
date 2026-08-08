@@ -1750,7 +1750,7 @@ async def startup_event():
     global performance_tracker, federated_learning_service, hybrid_cloud_service, zero_trust_policy_engine, response_time_analysis, research_evaluation_module, ieee_baseline_comparison, research_dashboard, explainable_ai_service, automatic_reports_service, api_documentation_service, password_reset_service
     try:
         await init_db()
-        db_connect = lambda: psycopg.AsyncConnection.connect(DATABASE_URL)
+        db_connect = lambda: psycopg.AsyncConnection.connect(DATABASE_URL, connect_timeout=10)
         performance_tracker = PerformanceTracker(db_connect)
         federated_learning_service = FederatedLearningService(db_connect)
         hybrid_cloud_service = HybridCloudService(db_connect)
@@ -1777,7 +1777,9 @@ async def startup_event():
         print("✓ API documentation service initialized")
         print("✓ ML models initialized")
     except Exception as e:
-        print(f"✗ Startup error: {e}")
+        print(f"✗ Startup error: {type(e).__name__}")
+        await database_pool.close()
+        raise RuntimeError("Backend startup failed") from e
 
 @app.on_event("shutdown")
 async def shutdown_event():
