@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
   const issuedAt = Math.floor(Date.now() / 1000).toString()
   const value = `${issuedAt}.${signature(issuedAt)}`
-  const response = NextResponse.json({ ok: true })
+  const response = NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } })
   response.cookies.set('admin_session', value, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

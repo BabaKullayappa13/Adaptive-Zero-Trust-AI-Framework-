@@ -19,8 +19,9 @@ export default function ForgotPasswordPage() {
       const response = await apiClient.forgotPassword(email)
       setMessage(response.data?.message ?? 'If the account exists, a reset link has been sent.')
     } catch (requestError: any) {
-      const detail = requestError?.response?.data?.detail
-      setError(typeof detail === 'string' ? detail : 'Unable to send the reset request. Please try again.')
+      setError(requestError?.response?.status === 429
+        ? 'Too many requests. Please wait and try again.'
+        : 'Unable to process the reset request right now. Please try again.')
     } finally {
       setIsLoading(false)
     }

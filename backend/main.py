@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import psycopg
 from psycopg import AsyncConnection
+from psycopg.errors import UniqueViolation
 from psycopg_pool import AsyncConnectionPool
 import jwt
 import pyotp
@@ -63,9 +64,22 @@ import time
 # CONFIGURATION
 # ============================================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = next(
+    (
+        os.getenv(name)
+        for name in (
+            "DATABASE_URL",
+            "DATABASE_URL_3",
+            "POSTGRES_URL",
+            "POSTGRES_PRISMA_URL",
+            "POSTGRES_URL_NON_POOLING",
+        )
+        if os.getenv(name)
+    ),
+    None,
+)
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is required")
+    raise ValueError("A server-side PostgreSQL DATABASE_URL is required")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
@@ -418,14 +432,15 @@ async def health_check():
 @app.post("/api/auth/register", response_model=UserResponse)
 async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db_connection)):
     """Register a new user"""
+    normalized_email = str(user_data.email).strip().lower()
     try:
-        # Check if user exists
+        # Normalize before both lookup and insert so case variants cannot create accounts.
         existing = await conn.execute(
-            "SELECT id FROM users WHERE email = %s",
-            (user_data.email,)
+            "SELECT id FROM users WHERE lower(email) = %s",
+            (normalized_email,)
         )
         if await existing.fetchone():
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(status_code=409, detail="An account with this email already exists.")
         
         # Create user
         user_id = str(uuid.uuid4())
@@ -436,7 +451,7 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
             INSERT INTO users (id, email, password_hash, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (user_id, user_data.email, password_hash, datetime.utcnow(), datetime.utcnow())
+            (user_id, normalized_email, password_hash, datetime.utcnow(), datetime.utcnow())
         )
         await conn.commit()
         
@@ -448,8 +463,12 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
         )
     except HTTPException:
         raise
+    except UniqueViolation:
+        await conn.rollback()
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
     except Exception as e:
-        print(f"[v0] Request failed: {e}")
+        await conn.rollback()
+        print(f"[v0] Registration failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # ============================================================================
@@ -459,6 +478,7 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
 @app.post("/api/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin, request: Request, conn: AsyncConnection = Depends(get_db_connection)):
     """Authenticate user and return tokens"""
+    normalized_email = str(credentials.email).strip().lower()
     try:
         # Rate limiting by IP address
         ip_address = request.client.host if request.client else "0.0.0.0"
@@ -468,18 +488,18 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
         # Get user
         result = await conn.execute(
             "SELECT id, password_hash, mfa_enabled, mfa_secret FROM users WHERE email = %s",
-            (credentials.email,)
+            (normalized_email,)
         )
         user = await result.fetchone()
         
         if not user:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+            raise HTTPException(status_code=401, detail="Invalid email or password.")
         
         user_id, password_hash, mfa_enabled, mfa_secret = user
         
         # Verify password
         if not verify_password(credentials.password, password_hash):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+            raise HTTPException(status_code=401, detail="Invalid email or password.")
 
         # Enforce the second factor for accounts that have enabled MFA.
         if mfa_enabled:

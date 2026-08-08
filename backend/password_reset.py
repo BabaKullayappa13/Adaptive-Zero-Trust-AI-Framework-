@@ -33,9 +33,14 @@ class PasswordResetService:
                 token_hash = hashlib.sha256(token.encode()).hexdigest()
                 expires_at = datetime.utcnow() + timedelta(hours=1)
                 
-                # Store reset token
+                # Expired requests no longer count as active; remove them before
+                # inserting the new token protected by the unique active index.
                 await conn.execute(
-                    """INSERT INTO password_reset_tokens 
+                    "DELETE FROM password_reset_tokens WHERE user_id = %s AND used_at IS NULL AND expires_at <= NOW()",
+                    (user_id,),
+                )
+                await conn.execute(
+                    """INSERT INTO password_reset_tokens
                        (user_id, token_hash, expires_at, created_at)
                        VALUES (%s, %s, %s, %s)""",
                     (user_id, token_hash, expires_at, datetime.utcnow())
@@ -85,7 +90,7 @@ class PasswordResetService:
     async def reset_password(self, email: str, token: str, new_password: str) -> bool:
         """Reset user password"""
         try:
-            from auth import hash_password
+            from .main import hash_password
             
             token_hash = hashlib.sha256(token.encode()).hexdigest()
             password_hash = hash_password(new_password)
@@ -121,12 +126,16 @@ class PasswordResetService:
                     (password_hash, user_id)
                 )
                 
-                # Mark token as used
+                # Consume the token and revoke existing sessions atomically so a
+                # password reset always requires a fresh authentication.
                 await conn.execute(
                     "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = %s",
                     (token_record[0],)
                 )
-                
+                await conn.execute(
+                    "UPDATE auth_sessions SET revoked_at = NOW() WHERE user_id = %s AND revoked_at IS NULL",
+                    (user_id,),
+                )
                 await conn.commit()
                 return True
         except Exception as e:
