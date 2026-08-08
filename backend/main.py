@@ -692,15 +692,26 @@ async def get_trust_score(user_id: str, current_user_id: str = Depends(get_curre
         if not await result.fetchone():
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Simulate behavioral factors
-        factors = {
-            "device_trust": np.random.uniform(60, 100),
-            "behavioral_score": np.random.uniform(65, 95),
-            "geographic_anomaly": np.random.uniform(70, 95),
-            "temporal_anomaly": np.random.uniform(60, 90),
-            "authentication_strength": np.random.uniform(75, 100)
+        # Use the most recent persisted factors. A new account receives a
+        # conservative deterministic baseline until real signals are recorded.
+        latest = await conn.execute(
+            """
+            SELECT factors FROM trust_scores
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,)
+        )
+        latest_row = await latest.fetchone()
+        stored_factors = latest_row[0] if latest_row else None
+        factors = (json.loads(stored_factors) if isinstance(stored_factors, str) else stored_factors) if stored_factors else {
+            "device_trust": 50.0,
+            "behavioral_score": 50.0,
+            "geographic_anomaly": 50.0,
+            "temporal_anomaly": 50.0,
+            "authentication_strength": 50.0,
         }
-        
         trust_score = TrustScoreCalculator.calculate(factors)
         
         # Determine risk level

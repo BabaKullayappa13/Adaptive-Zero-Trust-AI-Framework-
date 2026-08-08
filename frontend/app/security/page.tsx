@@ -40,10 +40,10 @@ export default function SecurityPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">Password</h3>
-                  <p className="text-sm text-slate-400">Last changed 45 days ago</p>
+                  <p className="text-sm text-slate-400">Password history is unavailable</p>
                 </div>
               </div>
-              <button className="btn btn-secondary w-full">Change Password</button>
+              <button type="button" className="btn btn-secondary w-full" onClick={() => router.push('/auth/reset-password')}>Change Password</button>
             </div>
 
             {/* Two-Factor Authentication */}
@@ -57,7 +57,7 @@ export default function SecurityPage() {
                   <p className="text-sm text-slate-400">Not enabled</p>
                 </div>
               </div>
-              <button className="btn btn-primary w-full">Enable MFA</button>
+              <button type="button" className="btn btn-primary w-full" onClick={() => router.push('/auth/mfa/setup')}>Enable MFA</button>
             </div>
 
             {/* API Keys */}
@@ -68,10 +68,10 @@ export default function SecurityPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">API Keys</h3>
-                  <p className="text-sm text-slate-400">2 keys active</p>
+                  <p className="text-sm text-slate-400">API key management is not configured</p>
                 </div>
               </div>
-              <button className="btn btn-secondary w-full">Manage Keys</button>
+              <button type="button" className="btn btn-secondary w-full" disabled title="API key management is not configured">Manage Keys</button>
             </div>
 
             {/* Trusted Devices */}
@@ -82,10 +82,10 @@ export default function SecurityPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">Trusted Devices</h3>
-                  <p className="text-sm text-slate-400">1 device registered</p>
+                  <p className="text-sm text-slate-400">Trusted device data is unavailable</p>
                 </div>
               </div>
-              <button className="btn btn-secondary w-full">View Devices</button>
+              <button type="button" className="btn btn-secondary w-full" disabled title="Trusted device data is unavailable">View Devices</button>
             </div>
           </div>
 
@@ -96,7 +96,7 @@ export default function SecurityPage() {
               <div className="flex justify-between items-center p-4 bg-slate-800/50 rounded-lg border border-slate-700">
                 <div>
                   <p className="font-medium text-foreground">Current Session</p>
-                  <p className="text-sm text-slate-400">Chrome on macOS • 192.168.1.1</p>
+                  <p className="text-sm text-slate-400">Current session details are unavailable</p>
                 </div>
                 <span className="px-3 py-1 bg-success/20 text-success text-sm rounded-full">Active</span>
               </div>
