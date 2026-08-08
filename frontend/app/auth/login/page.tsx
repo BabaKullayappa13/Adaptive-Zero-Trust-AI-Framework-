@@ -10,7 +10,9 @@ export default function LoginPage() {
   const { login, isLoading, error } = useAuthStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [totpCode, setTotpCode] = useState('')
   const [localError, setLocalError] = useState('')
+  const requiresMfa = /mfa|totp|two.factor/i.test(localError || error || '')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,7 +24,7 @@ export default function LoginPage() {
     }
 
     try {
-      await login(email, password)
+      await login(email, password, totpCode || undefined)
       router.push('/dashboard')
     } catch (err: any) {
       setLocalError(err.response?.data?.detail || 'Login failed')
@@ -77,6 +79,24 @@ export default function LoginPage() {
                 required
               />
             </div>
+
+            {requiresMfa && (
+              <div className="space-y-2">
+                <label htmlFor="totp-code" className="block text-sm font-medium text-foreground">MFA code</label>
+                <input
+                  id="totp-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.replace(/\\D/g, '').slice(0, 8))}
+                  placeholder="123456"
+                  className="input"
+                  disabled={isLoading}
+                  required
+                />
+              </div>
+            )}
 
             <div className="flex justify-end">
               <Link href="/auth/forgot-password" className="text-sm text-primary hover:underline">Forgot password?</Link>
