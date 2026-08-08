@@ -64,9 +64,22 @@ import time
 # CONFIGURATION
 # ============================================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = next(
+    (
+        os.getenv(name)
+        for name in (
+            "DATABASE_URL",
+            "DATABASE_URL_3",
+            "POSTGRES_URL",
+            "POSTGRES_PRISMA_URL",
+            "POSTGRES_URL_NON_POOLING",
+        )
+        if os.getenv(name)
+    ),
+    None,
+)
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is required")
+    raise ValueError("A server-side PostgreSQL DATABASE_URL is required")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
