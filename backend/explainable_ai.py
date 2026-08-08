@@ -6,7 +6,11 @@ import psycopg
 from psycopg import AsyncConnection
 
 class ExplainableAIService:
-    """SHAP-based explainable AI for trust decisions"""
+    """Explainability helpers for trust decisions.
+
+    Callers must provide real model contributions. This service does not compute
+    SHAP values and never labels heuristic contributions as SHAP output.
+    """
     
     def __init__(self, db_connect_func):
         self.db_connect = db_connect_func
@@ -14,7 +18,11 @@ class ExplainableAIService:
     async def generate_feature_importance(self, decision_id: str,
                                          features: Dict[str, float],
                                          shap_values: Dict[str, float]) -> Dict:
-        """Generate SHAP feature importance explanation"""
+        """Format supplied feature contributions for an explanation.
+
+        ``shap_values`` must come from a separately configured explainer; this
+        method only ranks and formats values supplied by the caller.
+        """
         
         # Sort features by absolute SHAP value
         sorted_features = sorted(
@@ -47,8 +55,10 @@ class ExplainableAIService:
             "timestamp": datetime.utcnow().isoformat(),
             "total_features": len(feature_importance),
             "features": feature_importance,
-            "base_value": 0.5,  # Base prediction value
-            "model_output": float(sum(shap_values.values()) + 0.5)  # Simplified
+            "contribution_source": "caller_supplied_model_values",
+            "is_shap": False,
+            "base_value": None,
+            "model_output": None,
         }
     
     async def generate_decision_explanation(self, user_id: str, policy_decision: str,

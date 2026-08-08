@@ -5,8 +5,8 @@ from typing import Dict, Any, Optional
 import statistics
 
 
-# IEEE Paper Reference Baselines
-# Based on continuous authentication and zero-trust frameworks literature
+# Reference baselines used by this prototype.
+# These are internal comparison targets, not verified IEEE paper measurements.
 IEEE_BASELINES = {
     "login": {
         "avg_ms": 450,
@@ -70,7 +70,7 @@ class ResearchComparisonReport:
 
 ## Executive Summary
 
-This report compares measured system performance metrics against established IEEE paper baselines for continuous authentication and zero-trust security frameworks. The analysis identifies performance optimizations and SLA compliance across critical authentication and API operations.
+This report compares measured system performance metrics against the prototype's configured reference targets. These targets are not independently verified IEEE measurements; replace them with cited, reproducible study data before using this report as academic evidence. The analysis identifies performance optimizations and SLA compliance across critical authentication and API operations.
 
 ---
 
@@ -204,7 +204,7 @@ This report compares measured system performance metrics against established IEE
                     report += f"- **Authentication reliability**: ✓ {auth_success_rate:.2f}% (Exceeds target >99.9%)\n"
         
         report += "\n---\n\n## Conclusion\n\n"
-        report += "This performance analysis demonstrates the system's capability to meet IEEE standard baselines for continuous authentication and zero-trust frameworks. "
+        report += "This performance analysis describes observed behavior against configured prototype targets; it does not demonstrate compliance with IEEE standards. "
         report += "Continued monitoring and optimization following the recommendations above will ensure sustained compliance with security requirements and performance targets.\n\n"
         report += "---\n\n"
         report += f"*Report generated at: {timestamp}*\n"

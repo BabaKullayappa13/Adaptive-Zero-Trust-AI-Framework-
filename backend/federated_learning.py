@@ -77,7 +77,26 @@ class FederatedLearningService:
             rows = await participants.fetchall()
             if not rows:
                 return {"error": "No participants submitted models"}
-            
+
+            round_result = await conn.execute(
+                "SELECT minimum_participants, status FROM federated_rounds WHERE id = %s FOR UPDATE",
+                (round_id,),
+            )
+            round_row = await round_result.fetchone()
+            if not round_row:
+                return {"error": "Federated round not found"}
+            minimum_participants, round_status = round_row
+            if len(rows) < minimum_participants:
+                return {
+                    "error": "Minimum participant threshold not met",
+                    "required_participants": minimum_participants,
+                    "submitted_participants": len(rows),
+                }
+            if any(row[4] is None or row[4] <= 0 for row in rows):
+                return {"error": "Each submitted model must include a positive sample count"}
+            if round_status == "completed":
+                return {"error": "Federated round is already completed"}
+
             # FedAvg: Weighted average by data samples
             total_samples = sum(row[4] for row in rows)
             weights = [row[4] / total_samples for row in rows]

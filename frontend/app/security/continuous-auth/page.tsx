@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ChangeEvent } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -48,6 +48,9 @@ export default function ContinuousAuthDashboard() {
   const [currentTrustScore, setCurrentTrustScore] = useState(0)
   const [currentRiskScore, setCurrentRiskScore] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [mfaCode, setMfaCode] = useState('')
+  const [mfaMessage, setMfaMessage] = useState('')
+  const [mfaSubmitting, setMfaSubmitting] = useState(false)
   const user = useAuthStore((state) => state.user)
 
   const loadDashboardData = useCallback(async () => {
@@ -84,6 +87,26 @@ export default function ContinuousAuthDashboard() {
     return () => clearInterval(interval)
   }, [loadDashboardData])
 
+  async function submitMfaStepUp() {
+    const sessionId = sessions.find((session) => session.is_active)?.session_id
+    if (!sessionId || mfaCode.length < 6) {
+      setMfaMessage('Enter a valid 6-digit code for an active session.')
+      return
+    }
+    setMfaSubmitting(true)
+    setMfaMessage('')
+    try {
+      await apiClient.completeContinuousStepUp(sessionId, mfaCode)
+      setMfaCode('')
+      setMfaMessage('MFA verified. Session trust has been restored.')
+      await loadDashboardData()
+    } catch {
+      setMfaMessage('MFA verification failed. Check the code and try again.')
+    } finally {
+      setMfaSubmitting(false)
+    }
+  }
+
   const getRiskLevelColor = (level: string) => {
     switch (level) {
       case 'Low':
@@ -117,6 +140,30 @@ export default function ContinuousAuthDashboard() {
           <h1 className="text-4xl font-bold mb-2">Continuous Authentication Dashboard</h1>
           <p className="text-muted-foreground">Real-time security monitoring and trust analysis</p>
         </div>
+
+        {currentRiskScore >= 60 && (
+          <Card className="mb-8 border-amber-500/40">
+            <CardHeader>
+              <CardTitle>Step-up verification required</CardTitle>
+              <CardDescription>Elevated risk was detected for the active session. Verify with your authenticator to restore normal trust.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input
+                value={mfaCode}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setMfaCode(event.target.value.replace(/\\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="6-digit code"
+                aria-label="MFA verification code"
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm sm:max-w-xs"
+              />
+              <button type="button" onClick={submitMfaStepUp} disabled={mfaSubmitting} className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
+                {mfaSubmitting ? 'Verifying...' : 'Verify MFA'}
+              </button>
+              {mfaMessage && <p className="text-sm text-muted-foreground" role="status">{mfaMessage}</p>}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Trust & Risk Score Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">

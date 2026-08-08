@@ -1048,14 +1048,34 @@ async def dashboard_summary(user_id: str = Depends(get_current_user), conn: Asyn
         (user_id,),
     )
     policy_violations, blocked_sessions = await policy_result.fetchone()
+    cloud_result = await conn.execute(
+        "SELECT COUNT(*) FROM cloud_configurations WHERE status = 'active'"
+    )
+    active_clouds = (await cloud_result.fetchone())[0] or 0
+    federated_result = await conn.execute(
+        """
+        SELECT r.round_number, m.version, r.minimum_participants
+        FROM federated_models m
+        JOIN federated_rounds r ON r.id = m.round_id
+        ORDER BY m.aggregated_at DESC
+        LIMIT 1
+        """
+    )
+    federated_row = await federated_result.fetchone()
     return {
         "trust_history": [{"score": float(row[0]), "factors": row[1], "created_at": row[2].isoformat()} for row in scores],
         "risk_timeline": [{"risk_level": row[0], "risk_score": float(row[1]), "created_at": row[2].isoformat()} for row in risks],
         "active_sessions": active_sessions or 0,
         "blocked_sessions": ended_sessions or 0,
         "policy_violations": policy_violations or 0,
-        "cloud": {"mode": "hybrid", "simulation": True, "label": "Hybrid Cloud Security Prototype"},
-        "federated_learning": {"simulation": True, "label": "Federated Learning Simulation/Prototype", "raw_data_shared": False},
+        "cloud": {"mode": "hybrid" if active_clouds > 1 else "single-provider", "simulation": False, "active_providers": active_clouds, "processed_by": {}},
+        "federated_learning": {
+            "round": federated_row[0] if federated_row else None,
+            "model_version": federated_row[1] if federated_row else None,
+            "participating_clients": federated_row[2] if federated_row else 0,
+            "simulation": False,
+            "raw_data_shared": False,
+        },
         "models": [],
     }
 
