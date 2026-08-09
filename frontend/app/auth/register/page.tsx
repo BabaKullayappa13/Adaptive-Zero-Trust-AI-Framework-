@@ -36,8 +36,8 @@ export default function RegisterPage() {
 
     try {
       await register(email, password)
-      setSuccessMessage('Account created successfully! Please sign in to continue.')
-      window.setTimeout(() => router.replace('/auth/login'), 1200)
+      setSuccessMessage('Account created. Check your email and follow the verification instructions before signing in.')
+      window.setTimeout(() => router.replace('/auth/login?verified=required'), 2200)
     } catch (err: any) {
       const status = err?.response?.status
       const detail = err?.response?.data?.detail

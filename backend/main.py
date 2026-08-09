@@ -45,6 +45,7 @@ try:
     from .api_documentation import APIDocumentationService
     from .rate_limiter import check_rate_limit
     from .password_reset import PasswordResetService
+    from .email_service import email_status
 except ImportError:
     from performance_tracker import PerformanceTracker, timing_decorator
     from research_report import generate_comparison_report
@@ -60,6 +61,7 @@ except ImportError:
     from api_documentation import APIDocumentationService
     from rate_limiter import check_rate_limit
     from password_reset import PasswordResetService
+    from email_service import email_status
 import time
 
 # ============================================================================
@@ -263,6 +265,7 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     database: str
+    email_service: str
     ai_engine: str
 
 class TrustScoreResponse(BaseModel):
@@ -417,6 +420,7 @@ async def health_check():
         "status": "healthy" if database_status == "connected" else "degraded",
         "service": "adaptive-zero-trust-ai-framework",
         "database": database_status,
+        "email_service": email_status(),
         "ai_engine": "available" if anomaly_detector is not None else "unavailable",
     }
 
@@ -654,15 +658,18 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
         if not await check_rate_limit(ip_address, limit_type='auth'):
             raise HTTPException(status_code=429, detail="Too many requests")
         
-        await password_reset_service.generate_reset_token(body.email)
-        
-        # Delivery is intentionally delegated to a configured mail adapter.
+        await password_reset_service.generate_reset_token(str(body.email).strip().lower())
+
         # Never return a reset token from an authentication endpoint.
-        return {"message": "If email exists, reset link has been sent"}
+        return {"message": "If an account exists for this email, reset instructions will be sent."}
     except HTTPException:
         raise
     except Exception as e:
+        if type(e).__name__ == "EmailDeliveryError":
+            raise HTTPException(status_code=503, detail="Unable to send the reset email. Please try again.")
+        print(f"[v0] Password reset request failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Password reset failed")
+
 
 # ============================================================================
 # ENDPOINT: RESET PASSWORD

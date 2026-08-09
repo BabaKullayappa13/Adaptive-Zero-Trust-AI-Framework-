@@ -63,12 +63,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   register: async (email, password, name) => {
     set({ isLoading: true, error: null })
     try {
+      // Email verification can intentionally prevent session creation. Do not
+      // call /token here and do not treat registration as authentication.
       await neonAuth('/sign-up/email', { email: email.trim(), password, name: name || email.split('@')[0] })
-      const token = await getNeonToken()
-      const session = await neonAuth('/get-session')
-      const user = userFromSession(session)
-      if (!user) throw new Error('Neon Auth returned an invalid session')
-      set({ user, accessToken: token, isInitialized: true })
+      set({ user: null, accessToken: null, isInitialized: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Registration failed'
       set({ error: message })
