@@ -661,7 +661,8 @@ async def reset_password(body: ResetPasswordRequest):
 
 @app.post("/api/auth/mfa/setup")
 async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    """Generate and persist a pending MFA secret for the authenticated user."""
+    """Neon Auth owns MFA enrollment for this deployment."""
+    raise HTTPException(status_code=410, detail="MFA enrollment is handled by Neon Auth")
     user_id = mfa_setup.user_id
     ensure_owner(user_id, current_user_id)
     try:
@@ -696,7 +697,8 @@ async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_curr
 
 @app.post("/api/auth/mfa/verify")
 async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    """Verify TOTP code and enable MFA."""
+    """Neon Auth owns MFA verification for this deployment."""
+    raise HTTPException(status_code=410, detail="MFA verification is handled by Neon Auth")
     ensure_owner(mfa_verify.user_id, current_user_id)
     try:
         result = await conn.execute(
