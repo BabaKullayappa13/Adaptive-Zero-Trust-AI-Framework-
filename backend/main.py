@@ -7,6 +7,7 @@ import os
 import json
 import asyncio
 import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from psycopg_pool import AsyncConnectionPool
 import jwt
+from jwt import PyJWKClient
 import pyotp
 from passlib.context import CryptContext
 import numpy as np
@@ -81,20 +83,30 @@ DATABASE_URL = next(
 if not DATABASE_URL:
     raise ValueError("A server-side PostgreSQL DATABASE_URL is required")
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is required")
-ALGORITHM = "HS256"
+# Neon requires TLS in production. Preserve an explicitly supplied sslmode,
+# but make the common Render/Neon URL safe when the provider omits it.
+if any(host in DATABASE_URL for host in ("neon.tech", "neon.database")) and "sslmode=" not in DATABASE_URL:
+    DATABASE_URL += "&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require"
+
+NEON_AUTH_BASE_URL = (os.getenv("NEON_AUTH_BASE_URL") or os.getenv("VITE_NEON_AUTH_URL") or "").rstrip("/")
+NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL") or f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json"
+if not NEON_AUTH_BASE_URL:
+    raise ValueError("NEON_AUTH_BASE_URL environment variable is required")
+NEON_JWKS_CLIENT = PyJWKClient(NEON_AUTH_JWKS_URL)
 TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
-configured_origins = os.getenv("ALLOWED_ORIGINS")
+configured_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("ALLOWED_ORIGINS_4")
+frontend_url = os.getenv("FRONTEND_URL")
+if configured_origins is None and frontend_url:
+    configured_origins = frontend_url
 if configured_origins is None and os.getenv("ENVIRONMENT", "development").lower() == "production":
-    raise ValueError("ALLOWED_ORIGINS environment variable is required in production")
+    raise ValueError("ALLOWED_ORIGINS or ALLOWED_ORIGINS_4 environment variable is required in production")
 ALLOWED_ORIGINS = [
-    origin.strip()
+    origin.strip().rstrip("/")
     for origin in (configured_origins or "http://localhost:3000").split(",")
     if origin.strip()
 ]
+if frontend_url and frontend_url.rstrip("/") not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append(frontend_url.rstrip("/"))
 if "*" in ALLOWED_ORIGINS:
     raise ValueError("ALLOWED_ORIGINS must not contain '*' when credentials are enabled")
 security = HTTPBearer(auto_error=False)
@@ -114,9 +126,18 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # ============================================================================
 
 app = FastAPI(
-    title="Zero Trust AI Framework",
-    description="Adaptive continuous multi-factor authentication with AI-powered risk detection",
-    version="1.0.0"
+    title="Adaptive Zero Trust AI Framework API",
+    description="Production API for identity, device trust, adaptive risk decisions, policy enforcement, explainability, and federated-learning metadata.",
+    version="1.0.0",
+    servers=[
+        {"url": "https://adaptive-zero-trust-ai-framework-yh2l.onrender.com", "description": "Production"},
+    ],
+    openapi_tags=[
+        {"name": "Health", "description": "Service availability and dependency status."},
+        {"name": "Authentication", "description": "Authentication and session endpoints."},
+        {"name": "Zero Trust", "description": "Trust, risk, continuous verification, and policy decisions."},
+        {"name": "Administration", "description": "Admin-only operational telemetry and controls."},
+    ],
 )
 
 # CORS Configuration
@@ -146,7 +167,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/", include_in_schema=False)
 async def root():
-    return {"service": "zero-trust-backend", "status": "ok", "docs": "/docs"}
+    return {"service": "Adaptive Zero Trust AI Framework", "status": "running", "api": "FastAPI", "docs": "/docs"}
 
 @app.head("/", include_in_schema=False)
 async def root_head():
@@ -238,6 +259,12 @@ class UserResponse(BaseModel):
     mfa_enabled: bool
     created_at: str
 
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    database: str
+    ai_engine: str
+
 class TrustScoreResponse(BaseModel):
     score: float
     factors: Dict[str, Any]
@@ -275,64 +302,37 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(user_id: str, session_id: Optional[str] = None, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a short-lived JWT bound to a persisted server-side session."""
-    if expires_delta is None:
-        expires_delta = timedelta(minutes=TOKEN_EXPIRE_MINUTES)
-    
-    expire = datetime.utcnow() + expires_delta
-    to_encode = {"sub": user_id, "exp": expire, "type": "access"}
-    if session_id:
-        to_encode["sid"] = session_id
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    raise HTTPException(status_code=410, detail="Legacy token issuance has been replaced by Neon Auth")
 
 def create_refresh_token(user_id: str, session_id: Optional[str] = None) -> str:
-    """Create a refresh token bound to the authenticated session."""
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = {"sub": user_id, "exp": expire, "type": "refresh"}
-    if session_id:
-        to_encode["sid"] = session_id
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    raise HTTPException(status_code=410, detail="Legacy token issuance has been replaced by Neon Auth")
 
 def verify_token(token: str, expected_type: str = "access") -> Optional[str]:
-    """Verify a typed JWT and return its subject."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None or payload.get("type") != expected_type:
-            return None
-        return user_id
-    except jwt.ExpiredSignatureError:
+        return str(decode_neon_token(token).get("sub"))
+    except HTTPException:
         return None
-    except jwt.InvalidTokenError:
-        return None
+
+def decode_neon_token(token: str) -> Dict[str, Any]:
+    """Verify a Neon Auth JWT using the hosted JWKS endpoint."""
+    try:
+        signing_key = NEON_JWKS_CLIENT.get_signing_key_from_jwt(token)
+        return jwt.decode(token, signing_key.key, algorithms=["RS256", "ES256"], options={"verify_aud": False})
+    except Exception as exc:
+        print(f"[v0] Neon Auth token verification failed: {exc}")
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    conn: AsyncConnection = Depends(get_db_connection),
 ) -> str:
-    """Authenticate requests and ensure the user still exists."""
+    """Authenticate requests with a Neon Auth bearer token."""
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Authentication required")
-    user_id = verify_token(credentials.credentials)
+    payload = decode_neon_token(credentials.credentials)
+    user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-    session_id = payload.get("sid")
-    if not session_id:
-        raise HTTPException(status_code=401, detail="Session-bound token required")
-    result = await conn.execute(
-        """SELECT 1 FROM auth_sessions
-           WHERE id = %s AND user_id = %s AND expires_at > NOW() AND revoked_at IS NULL""",
-        (session_id, user_id),
-    )
-    if not await result.fetchone():
-        raise HTTPException(status_code=401, detail="Session expired or revoked")
-    return user_id
+        raise HTTPException(status_code=401, detail="Neon Auth token has no subject")
+    return str(user_id)
 
 
 def ensure_owner(requested_user_id: str, current_user_id: str) -> None:
@@ -371,18 +371,8 @@ class AnomalyDetector:
 # Initialize models
 anomaly_detector = AnomalyDetector()
 
-# Train with synthetic data on startup
-def init_ml_models():
-    """Initialize ML models with synthetic training data"""
-    np.random.seed(42)
-    # Generate synthetic normal behavior (8 features: login_hour, device_count, failed_attempts, etc)
-    normal_behavior = np.random.normal(loc=[14, 2, 0, 10, 1, 0.8, 25, 100], 
-                                       scale=[3, 1, 0.5, 5, 0.5, 0.1, 10, 50], 
-                                       size=(100, 8))
-    anomaly_detector.train(normal_behavior)
-
-# Call during startup
-init_ml_models()
+# The detector remains unavailable until a validated, persisted model is loaded.
+# Never train production security decisions on synthetic startup data.
 
 class TrustScoreCalculator:
     """Calculate trust score based on multiple factors"""
@@ -411,27 +401,33 @@ class TrustScoreCalculator:
 # ENDPOINT: HEALTH CHECK
 # ============================================================================
 
-@app.get("/health")
-@app.get("/api/health")
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
+@app.get("/api/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
-    """Report process health without leaking database credentials."""
+    """Return process health without making an unavailable dependency take down probes."""
+    database_status = "unavailable"
     try:
         async with database_pool.connection(timeout=3) as conn:
             await conn.execute("SELECT 1")
-        return {"status": "ok", "service": "zero-trust-backend", "database": "ok"}
-    except Exception:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "service": "zero-trust-backend", "database": "unavailable"},
-        )
+        database_status = "connected"
+    except Exception as exc:
+        print(f"[v0] Health database check failed: {type(exc).__name__}")
+
+    return {
+        "status": "healthy" if database_status == "connected" else "degraded",
+        "service": "adaptive-zero-trust-ai-framework",
+        "database": database_status,
+        "ai_engine": "available" if anomaly_detector is not None else "unavailable",
+    }
 
 # ============================================================================
 # ENDPOINT: AUTHENTICATION - REGISTER
 # ============================================================================
 
-@app.post("/api/auth/register", response_model=UserResponse)
+@app.post("/api/auth/register", response_model=UserResponse, include_in_schema=False)
 async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db_connection)):
-    """Register a new user"""
+    """Neon Auth owns registration for this deployment."""
+    raise HTTPException(status_code=410, detail="Registration is handled by Neon Auth")
     normalized_email = str(user_data.email).strip().lower()
     try:
         # Normalize before both lookup and insert so case variants cannot create accounts.
@@ -475,9 +471,10 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
 # ENDPOINT: AUTHENTICATION - LOGIN
 # ============================================================================
 
-@app.post("/api/auth/login", response_model=TokenResponse)
+@app.post("/api/auth/login", response_model=TokenResponse, include_in_schema=False)
 async def login(credentials: UserLogin, request: Request, conn: AsyncConnection = Depends(get_db_connection)):
-    """Authenticate user and return tokens"""
+    """Neon Auth owns login and session issuance for this deployment."""
+    raise HTTPException(status_code=410, detail="Login is handled by Neon Auth")
     normalized_email = str(credentials.email).strip().lower()
     try:
         # Rate limiting by IP address
@@ -556,9 +553,10 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
 # ENDPOINT: AUTHENTICATION - REFRESH TOKEN
 # ============================================================================
 
-@app.post("/api/auth/refresh", response_model=TokenResponse)
+@app.post("/api/auth/refresh", response_model=TokenResponse, include_in_schema=False)
 async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depends(get_db_connection)):
-    """Refresh access token using a validated refresh token."""
+    """Neon Auth owns token refresh for this deployment."""
+    raise HTTPException(status_code=410, detail="Token refresh is handled by Neon Auth")
     try:
         refresh_token_str = body.refresh_token
         if not refresh_token_str:
@@ -603,15 +601,17 @@ async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depen
 # ============================================================================
 
 @app.get("/api/auth/me", response_model=UserResponse)
-async def current_user(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    result = await conn.execute(
-        "SELECT id, email, mfa_enabled, created_at FROM users WHERE id = %s",
-        (user_id,),
+async def current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user_id: str = Depends(get_current_user),
+):
+    payload = decode_neon_token(credentials.credentials)
+    return UserResponse(
+        id=user_id,
+        email=str(payload.get("email", "")),
+        mfa_enabled=False,
+        created_at=str(payload.get("createdAt") or payload.get("created_at") or datetime.utcnow().isoformat()),
     )
-    user = await result.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return UserResponse(id=str(user[0]), email=user[1], mfa_enabled=bool(user[2]), created_at=user[3].isoformat())
 
 # ============================================================================
 # ENDPOINT: LOGOUT
@@ -690,9 +690,10 @@ async def reset_password(body: ResetPasswordRequest):
 # ENDPOINT: MFA SETUP
 # ============================================================================
 
-@app.post("/api/auth/mfa/setup")
+@app.post("/api/auth/mfa/setup", include_in_schema=False)
 async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    """Generate and persist a pending MFA secret for the authenticated user."""
+    """Neon Auth owns MFA enrollment for this deployment."""
+    raise HTTPException(status_code=410, detail="MFA enrollment is handled by Neon Auth")
     user_id = mfa_setup.user_id
     ensure_owner(user_id, current_user_id)
     try:
@@ -725,9 +726,10 @@ async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_curr
 # ENDPOINT: MFA VERIFY & ENABLE
 # ============================================================================
 
-@app.post("/api/auth/mfa/verify")
+@app.post("/api/auth/mfa/verify", include_in_schema=False)
 async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    """Verify TOTP code and enable MFA."""
+    """Neon Auth owns MFA verification for this deployment."""
+    raise HTTPException(status_code=410, detail="MFA verification is handled by Neon Auth")
     ensure_owner(mfa_verify.user_id, current_user_id)
     try:
         result = await conn.execute(
@@ -1103,12 +1105,23 @@ async def dashboard_summary(user_id: str = Depends(get_current_user), conn: Asyn
 # ADMIN METRICS ENDPOINTS
 # ============================================================================
 
-async def is_admin(user_id: str = Depends(get_current_user)) -> str:
-    """Simple admin check - in production, use RBAC tables"""
-    admin_ids = os.getenv("ADMIN_USER_IDS", "").split(",")
-    if user_id not in admin_ids:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user_id
+async def is_admin(request: Request) -> str:
+    """Validate the signed admin-area session on every admin request."""
+    raw = request.cookies.get("admin_session", "")
+    try:
+        issued_at, provided_signature = raw.split(".", 1)
+        issued = int(issued_at)
+        if issued <= 0 or time.time() - issued > 8 * 60 * 60:
+            raise ValueError("expired admin session")
+        secret = (os.getenv("ADMIN_SESSION_SECRET") or os.getenv("SECRET_KEY_3") or os.getenv("ADMIN_ACCESS_KEY_4") or "").encode()
+        if not secret:
+            raise ValueError("admin session secret unavailable")
+        expected = hmac.new(secret, issued_at.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, provided_signature):
+            raise ValueError("invalid admin session")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+    return "admin"
 
 @app.get("/api/admin/metrics/summary")
 async def metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)):

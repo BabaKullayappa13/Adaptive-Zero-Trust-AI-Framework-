@@ -21,7 +21,7 @@ function isUsableBackendUrl(value) {
   }
 }
 
-const backendApiUrl = configuredBackendUrls.find(isUsableBackendUrl) || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : null)
+const backendApiUrl = configuredBackendUrls.find(isUsableBackendUrl) || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "https://adaptive-zero-trust-ai-framework-yh2l.onrender.com")
 
 const nextConfig = {
   reactStrictMode: true,
@@ -38,6 +38,7 @@ const nextConfig = {
           { key: 'Strict-Transport-Security', value: 'max-age=63072000' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Content-Security-Policy-Report-Only', value: "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; font-src 'self' data: https:; frame-ancestors 'self'" },
         ],
       },
     ]

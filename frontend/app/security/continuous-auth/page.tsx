@@ -145,23 +145,8 @@ export default function ContinuousAuthDashboard() {
           <Card className="mb-8 border-amber-500/40">
             <CardHeader>
               <CardTitle>Step-up verification required</CardTitle>
-              <CardDescription>Elevated risk was detected for the active session. Verify with your authenticator to restore normal trust.</CardDescription>
+              <CardDescription>Elevated risk was detected for the active session. Additional verification is managed by Neon Auth.</CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <input
-                value={mfaCode}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => setMfaCode(event.target.value.replace(/\\D/g, '').slice(0, 6))}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="6-digit code"
-                aria-label="MFA verification code"
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm sm:max-w-xs"
-              />
-              <button type="button" onClick={submitMfaStepUp} disabled={mfaSubmitting} className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
-                {mfaSubmitting ? 'Verifying...' : 'Verify MFA'}
-              </button>
-              {mfaMessage && <p className="text-sm text-muted-foreground" role="status">{mfaMessage}</p>}
-            </CardContent>
           </Card>
         )}
 
