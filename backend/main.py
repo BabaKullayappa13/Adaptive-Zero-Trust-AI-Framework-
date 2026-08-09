@@ -90,11 +90,18 @@ if not DATABASE_URL:
 if any(host in DATABASE_URL for host in ("neon.tech", "neon.database")) and "sslmode=" not in DATABASE_URL:
     DATABASE_URL += "&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require"
 
-NEON_AUTH_BASE_URL = (os.getenv("NEON_AUTH_BASE_URL") or os.getenv("VITE_NEON_AUTH_URL") or "").rstrip("/")
-NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL") or f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json"
-if not NEON_AUTH_BASE_URL:
-    raise ValueError("NEON_AUTH_BASE_URL environment variable is required")
-NEON_JWKS_CLIENT = PyJWKClient(NEON_AUTH_JWKS_URL)
+NEON_AUTH_BASE_URL = (
+    os.getenv("NEON_AUTH_BASE_URL")
+    or os.getenv("VITE_NEON_AUTH_URL")
+    or os.getenv("NEON_AUTH_URL")
+    or ""
+).rstrip("/")
+NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL") or (
+    f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json" if NEON_AUTH_BASE_URL else ""
+)
+# Do not crash Render during module import when auth configuration is missing.
+# Protected routes fail closed with a clear service configuration response.
+NEON_JWKS_CLIENT = PyJWKClient(NEON_AUTH_JWKS_URL) if NEON_AUTH_JWKS_URL else None
 TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 configured_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("ALLOWED_ORIGINS_4")
 frontend_url = os.getenv("FRONTEND_URL")
@@ -318,6 +325,8 @@ def verify_token(token: str, expected_type: str = "access") -> Optional[str]:
 
 def decode_neon_token(token: str) -> Dict[str, Any]:
     """Verify a Neon Auth JWT using the hosted JWKS endpoint."""
+    if NEON_JWKS_CLIENT is None:
+        raise HTTPException(status_code=503, detail="Neon Auth verification is not configured")
     try:
         signing_key = NEON_JWKS_CLIENT.get_signing_key_from_jwt(token)
         return jwt.decode(token, signing_key.key, algorithms=["RS256", "ES256"], options={"verify_aud": False})
