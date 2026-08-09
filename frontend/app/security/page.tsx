@@ -8,14 +8,19 @@ import { Shield, Lock, Key, Smartphone } from 'lucide-react'
 
 export default function SecurityPage() {
   const router = useRouter()
-  const { user, accessToken, logout } = useAuthStore()
+  const { user, accessToken, isInitialized, loadUser, logout } = useAuthStore()
 
   useEffect(() => {
-    if (!user || !accessToken) {
-      router.push('/auth/login')
-    }
-  }, [user, accessToken, router])
+    void loadUser()
+  }, [loadUser])
 
+  useEffect(() => {
+    if (isInitialized && (!user || !accessToken)) {
+      router.replace('/auth/login')
+    }
+  }, [isInitialized, user, accessToken, router])
+
+  if (!isInitialized) return <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">Verifying secure session...</div>
   if (!user || !accessToken) return null
 
   return (
@@ -85,7 +90,7 @@ export default function SecurityPage() {
                   <p className="text-sm text-slate-400">Trusted device data is unavailable</p>
                 </div>
               </div>
-              <button type="button" className="btn btn-secondary w-full" disabled title="Trusted device data is unavailable">View Devices</button>
+              <button type="button" className="btn btn-secondary w-full" onClick={() => router.push('/security/continuous-auth')}>View Devices &amp; trust telemetry</button>
             </div>
           </div>
 
