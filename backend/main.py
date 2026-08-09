@@ -89,14 +89,19 @@ if not NEON_AUTH_BASE_URL:
     raise ValueError("NEON_AUTH_BASE_URL environment variable is required")
 NEON_JWKS_CLIENT = PyJWKClient(NEON_AUTH_JWKS_URL)
 TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-configured_origins = os.getenv("ALLOWED_ORIGINS")
+configured_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("ALLOWED_ORIGINS_4")
+frontend_url = os.getenv("FRONTEND_URL")
+if configured_origins is None and frontend_url:
+    configured_origins = frontend_url
 if configured_origins is None and os.getenv("ENVIRONMENT", "development").lower() == "production":
-    raise ValueError("ALLOWED_ORIGINS environment variable is required in production")
+    raise ValueError("ALLOWED_ORIGINS or ALLOWED_ORIGINS_4 environment variable is required in production")
 ALLOWED_ORIGINS = [
-    origin.strip()
+    origin.strip().rstrip("/")
     for origin in (configured_origins or "http://localhost:3000").split(",")
     if origin.strip()
 ]
+if frontend_url and frontend_url.rstrip("/") not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append(frontend_url.rstrip("/"))
 if "*" in ALLOWED_ORIGINS:
     raise ValueError("ALLOWED_ORIGINS must not contain '*' when credentials are enabled")
 security = HTTPBearer(auto_error=False)
@@ -116,9 +121,18 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # ============================================================================
 
 app = FastAPI(
-    title="Zero Trust AI Framework",
-    description="Adaptive continuous multi-factor authentication with AI-powered risk detection",
-    version="1.0.0"
+    title="Adaptive Zero Trust AI Framework API",
+    description="Production API for identity, device trust, adaptive risk decisions, policy enforcement, explainability, and federated-learning metadata.",
+    version="1.0.0",
+    servers=[
+        {"url": "https://adaptive-zero-trust-ai-framework-yh2l.onrender.com", "description": "Production"},
+    ],
+    openapi_tags=[
+        {"name": "Health", "description": "Service availability and dependency status."},
+        {"name": "Authentication", "description": "Authentication and session endpoints."},
+        {"name": "Zero Trust", "description": "Trust, risk, continuous verification, and policy decisions."},
+        {"name": "Administration", "description": "Admin-only operational telemetry and controls."},
+    ],
 )
 
 # CORS Configuration
@@ -239,6 +253,12 @@ class UserResponse(BaseModel):
     email: str
     mfa_enabled: bool
     created_at: str
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    database: str
+    ai_engine: str
 
 class TrustScoreResponse(BaseModel):
     score: float
@@ -376,8 +396,8 @@ class TrustScoreCalculator:
 # ENDPOINT: HEALTH CHECK
 # ============================================================================
 
-@app.get("/health")
-@app.get("/api/health")
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
+@app.get("/api/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """Return process health without making an unavailable dependency take down probes."""
     database_status = "unavailable"
@@ -399,7 +419,7 @@ async def health_check():
 # ENDPOINT: AUTHENTICATION - REGISTER
 # ============================================================================
 
-@app.post("/api/auth/register", response_model=UserResponse)
+@app.post("/api/auth/register", response_model=UserResponse, include_in_schema=False)
 async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db_connection)):
     """Neon Auth owns registration for this deployment."""
     raise HTTPException(status_code=410, detail="Registration is handled by Neon Auth")
@@ -446,7 +466,7 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
 # ENDPOINT: AUTHENTICATION - LOGIN
 # ============================================================================
 
-@app.post("/api/auth/login", response_model=TokenResponse)
+@app.post("/api/auth/login", response_model=TokenResponse, include_in_schema=False)
 async def login(credentials: UserLogin, request: Request, conn: AsyncConnection = Depends(get_db_connection)):
     """Neon Auth owns login and session issuance for this deployment."""
     raise HTTPException(status_code=410, detail="Login is handled by Neon Auth")
@@ -528,7 +548,7 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
 # ENDPOINT: AUTHENTICATION - REFRESH TOKEN
 # ============================================================================
 
-@app.post("/api/auth/refresh", response_model=TokenResponse)
+@app.post("/api/auth/refresh", response_model=TokenResponse, include_in_schema=False)
 async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depends(get_db_connection)):
     """Neon Auth owns token refresh for this deployment."""
     raise HTTPException(status_code=410, detail="Token refresh is handled by Neon Auth")
@@ -665,7 +685,7 @@ async def reset_password(body: ResetPasswordRequest):
 # ENDPOINT: MFA SETUP
 # ============================================================================
 
-@app.post("/api/auth/mfa/setup")
+@app.post("/api/auth/mfa/setup", include_in_schema=False)
 async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Neon Auth owns MFA enrollment for this deployment."""
     raise HTTPException(status_code=410, detail="MFA enrollment is handled by Neon Auth")
@@ -701,7 +721,7 @@ async def setup_mfa(mfa_setup: MFASetup, current_user_id: str = Depends(get_curr
 # ENDPOINT: MFA VERIFY & ENABLE
 # ============================================================================
 
-@app.post("/api/auth/mfa/verify")
+@app.post("/api/auth/mfa/verify", include_in_schema=False)
 async def verify_mfa(mfa_verify: MFAVerify, current_user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
     """Neon Auth owns MFA verification for this deployment."""
     raise HTTPException(status_code=410, detail="MFA verification is handled by Neon Auth")

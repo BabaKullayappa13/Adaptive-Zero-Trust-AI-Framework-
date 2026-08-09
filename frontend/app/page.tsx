@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Activity, ArrowRight, BrainCircuit, Check, Fingerprint, LockKeyhole, Network, ShieldCheck } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
-import SiteFooter from '@/components/site-footer'
 
 const capabilities = [
   { icon: ShieldCheck, title: 'Zero Trust', text: 'Verify identity, context, and policy before every sensitive request.' },
@@ -55,6 +54,5 @@ export default function HomePage() {
 
       <section id="intelligence" className="mx-auto max-w-7xl px-5 py-24 sm:px-8 lg:py-32"><div className="grid gap-5 lg:grid-cols-3"><article className="feature-panel lg:col-span-2"><p className="eyebrow">Explainable AI</p><h2 className="mt-3 text-3xl font-semibold tracking-tight">Understand why the system made every decision.</h2><p className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground">Risk factors, policy outcomes, and recommended actions are surfaced from the security service—not hidden behind a score.</p><div className="mt-8 grid gap-3 sm:grid-cols-3"><div className="metric-tile"><span>Risk score</span><strong className="text-primary">Live</strong></div><div className="metric-tile"><span>Contributors</span><strong>Visible</strong></div><div className="metric-tile"><span>Action</span><strong>Adaptive</strong></div></div></article><article className="feature-panel"><p className="eyebrow">Privacy-preserving learning</p><h3 className="mt-3 text-2xl font-semibold">Federated intelligence</h3><p className="mt-4 text-sm leading-6 text-muted-foreground">Improve collective security intelligence without centralizing raw user data. Status stays honest when no distributed round is active.</p><div className="mt-8 flex items-center gap-3 text-sm"><span className="status-dot bg-ai" /> Integration-ready architecture</div></article></div></section>
     </main>
-    <SiteFooter />
   </div>
 }
