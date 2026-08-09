@@ -7,6 +7,7 @@ import os
 import json
 import asyncio
 import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -147,7 +148,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/", include_in_schema=False)
 async def root():
-    return {"service": "zero-trust-backend", "status": "ok", "docs": "/docs"}
+    return {"service": "Adaptive Zero Trust AI Framework", "status": "running", "api": "FastAPI", "docs": "/docs"}
 
 @app.head("/", include_in_schema=False)
 async def root_head():
@@ -378,16 +379,21 @@ class TrustScoreCalculator:
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    """Report process health without leaking database credentials."""
+    """Return process health without making an unavailable dependency take down probes."""
+    database_status = "unavailable"
     try:
         async with database_pool.connection(timeout=3) as conn:
             await conn.execute("SELECT 1")
-        return {"status": "ok", "service": "zero-trust-backend", "database": "ok"}
-    except Exception:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "service": "zero-trust-backend", "database": "unavailable"},
-        )
+        database_status = "connected"
+    except Exception as exc:
+        print(f"[v0] Health database check failed: {type(exc).__name__}")
+
+    return {
+        "status": "healthy" if database_status == "connected" else "degraded",
+        "service": "adaptive-zero-trust-ai-framework",
+        "database": database_status,
+        "ai_engine": "available" if anomaly_detector is not None else "unavailable",
+    }
 
 # ============================================================================
 # ENDPOINT: AUTHENTICATION - REGISTER
@@ -1074,12 +1080,23 @@ async def dashboard_summary(user_id: str = Depends(get_current_user), conn: Asyn
 # ADMIN METRICS ENDPOINTS
 # ============================================================================
 
-async def is_admin(user_id: str = Depends(get_current_user)) -> str:
-    """Simple admin check - in production, use RBAC tables"""
-    admin_ids = os.getenv("ADMIN_USER_IDS", "").split(",")
-    if user_id not in admin_ids:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user_id
+async def is_admin(request: Request) -> str:
+    """Validate the signed admin-area session on every admin request."""
+    raw = request.cookies.get("admin_session", "")
+    try:
+        issued_at, provided_signature = raw.split(".", 1)
+        issued = int(issued_at)
+        if issued <= 0 or time.time() - issued > 8 * 60 * 60:
+            raise ValueError("expired admin session")
+        secret = (os.getenv("ADMIN_SESSION_SECRET") or os.getenv("SECRET_KEY_3") or os.getenv("ADMIN_ACCESS_KEY_4") or "").encode()
+        if not secret:
+            raise ValueError("admin session secret unavailable")
+        expected = hmac.new(secret, issued_at.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, provided_signature):
+            raise ValueError("invalid admin session")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+    return "admin"
 
 @app.get("/api/admin/metrics/summary")
 async def metrics_summary(hours: int = 24, admin_id: str = Depends(is_admin)):

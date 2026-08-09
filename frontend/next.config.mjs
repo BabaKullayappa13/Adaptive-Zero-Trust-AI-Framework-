@@ -21,7 +21,7 @@ function isUsableBackendUrl(value) {
   }
 }
 
-const backendApiUrl = configuredBackendUrls.find(isUsableBackendUrl) || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : null)
+const backendApiUrl = configuredBackendUrls.find(isUsableBackendUrl) || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "https://adaptive-zero-trust-ai-framework-yh2l.onrender.com")
 
 const nextConfig = {
   reactStrictMode: true,
