@@ -5,6 +5,11 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
+try:
+    from .email_service import EmailDeliveryError, send_password_reset_email
+except ImportError:
+    from email_service import EmailDeliveryError, send_password_reset_email
+
 class PasswordResetService:
     """Handle password reset flow"""
 
@@ -46,7 +51,15 @@ class PasswordResetService:
                     (user_id, token_hash, expires_at, datetime.utcnow())
                 )
                 await conn.commit()
-                
+
+                try:
+                    await send_password_reset_email(recipient=email.strip().lower(), token=token)
+                except EmailDeliveryError:
+                    # Do not expose the token or claim delivery succeeded.
+                    print("[v0] EMAIL_OTP_FAILED purpose=PASSWORD_RESET")
+                    raise
+
+                print("[v0] EMAIL_OTP_SENT purpose=PASSWORD_RESET")
                 return token, user_id
         except Exception as e:
             print(f"[v0] Password reset error: {e}")
