@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 
-const NEON_AUTH_URL = process.env.NEXT_PUBLIC_NEON_AUTH_URL || process.env.VITE_NEON_AUTH_URL || ''
+const NEON_AUTH_URL = '/api/neon-auth'
 
 interface User {
   id: string
@@ -33,7 +33,10 @@ async function neonAuth(path: string, body?: Record<string, unknown>) {
     body: body ? JSON.stringify(body) : undefined,
   })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.message || data.error || 'Authentication failed')
+  if (!response.ok) {
+    const detail = data.message || data.error || data.detail
+    throw new Error(typeof detail === 'string' ? detail : `Authentication failed (${response.status})`)
+  }
   return data
 }
 

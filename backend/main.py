@@ -83,6 +83,11 @@ DATABASE_URL = next(
 if not DATABASE_URL:
     raise ValueError("A server-side PostgreSQL DATABASE_URL is required")
 
+# Neon requires TLS in production. Preserve an explicitly supplied sslmode,
+# but make the common Render/Neon URL safe when the provider omits it.
+if any(host in DATABASE_URL for host in ("neon.tech", "neon.database")) and "sslmode=" not in DATABASE_URL:
+    DATABASE_URL += "&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require"
+
 NEON_AUTH_BASE_URL = (os.getenv("NEON_AUTH_BASE_URL") or os.getenv("VITE_NEON_AUTH_URL") or "").rstrip("/")
 NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL") or f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json"
 if not NEON_AUTH_BASE_URL:
