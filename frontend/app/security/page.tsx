@@ -57,7 +57,7 @@ export default function SecurityPage() {
                   <p className="text-sm text-slate-400">Not enabled</p>
                 </div>
               </div>
-              <button type="button" className="btn btn-primary w-full" onClick={() => router.push('/auth/mfa/setup')}>Enable MFA</button>
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-center text-sm text-slate-300">Multi-factor authentication is managed by Neon Auth.</div>
             </div>
 
             {/* API Keys */}

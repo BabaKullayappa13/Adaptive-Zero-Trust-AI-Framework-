@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios'
+import { getNeonToken } from './auth-store'
 
 const API_BASE = '/api'
 
@@ -16,15 +17,20 @@ class APIClient {
     })
 
     // Neon Auth issues the bearer token; the backend verifies it against Neon Auth JWKS.
-    this.client.interceptors.request.use((config) => {
-      const token = typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
-      if (token) config.headers.Authorization = `Bearer ${token}`
+    this.client.interceptors.request.use(async (config) => {
+      if (typeof window !== 'undefined') {
+        try {
+          const token = await getNeonToken()
+          if (token) config.headers.Authorization = `Bearer ${token}`
+        } catch {
+          // Public requests can continue without a bearer token.
+        }
+      }
       return config
     })
 
     this.client.interceptors.response.use((response) => response, (error) => {
       if (error.response?.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth/')) {
-        sessionStorage.removeItem('access_token')
         window.location.href = '/auth/login'
       }
       return Promise.reject(error)
@@ -82,14 +88,6 @@ class APIClient {
 
   async getDashboardSummary() {
     return this.client.get('/dashboard/summary')
-  }
-
-  async setupMFA(userId: string) {
-    return this.client.post('/auth/mfa/setup', { user_id: userId })
-  }
-
-  async verifyMFA(userId: string, totpCode: string) {
-    return this.client.post('/auth/mfa/verify', { user_id: userId, totp_code: totpCode })
   }
 
   // Trust score endpoints

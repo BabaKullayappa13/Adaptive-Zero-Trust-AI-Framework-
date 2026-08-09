@@ -2,7 +2,7 @@
 
 import { create } from 'zustand'
 
-const NEON_AUTH_URL = process.env.NEXT_PUBLIC_NEON_AUTH_URL || process.env.VITE_NEON_AUTH_URL || 'https://ep-ancient-tree-az419aje.neonauth.c-3.ap-southeast-1.aws.neon.tech/neondb/auth'
+const NEON_AUTH_URL = process.env.NEXT_PUBLIC_NEON_AUTH_URL || process.env.VITE_NEON_AUTH_URL || ''
 
 interface User {
   id: string
@@ -65,7 +65,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       const session = await neonAuth('/get-session')
       const user = userFromSession(session)
       if (!user) throw new Error('Neon Auth returned an invalid session')
-      sessionStorage.setItem('access_token', token)
       set({ user, accessToken: token, isInitialized: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Registration failed'
@@ -84,7 +83,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       const session = await neonAuth('/get-session')
       const user = userFromSession(session)
       if (!user) throw new Error('Neon Auth returned an invalid session')
-      sessionStorage.setItem('access_token', token)
       set({ user, accessToken: token, isInitialized: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login failed'
@@ -97,26 +95,23 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: async () => {
     try { await neonAuth('/sign-out') } finally {
-      sessionStorage.removeItem('access_token')
       set({ user: null, accessToken: null, error: null, isInitialized: true })
     }
   },
 
   loadUser: async () => {
     if (typeof window === 'undefined') return
-    const token = sessionStorage.getItem('access_token')
-    if (!token) { set({ isInitialized: true }); return }
     try {
+      const token = await getNeonToken()
       const session = await neonAuth('/get-session')
       const user = userFromSession(session)
       if (!user) throw new Error('Session expired')
       set({ user, accessToken: token, isInitialized: true, error: null })
     } catch {
-      sessionStorage.removeItem('access_token')
       set({ user: null, accessToken: null, isInitialized: true })
     }
   },
 }))
 
-export { NEON_AUTH_URL }
+export { NEON_AUTH_URL, getNeonToken }
 

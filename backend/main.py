@@ -82,7 +82,7 @@ DATABASE_URL = next(
 if not DATABASE_URL:
     raise ValueError("A server-side PostgreSQL DATABASE_URL is required")
 
-NEON_AUTH_BASE_URL = (os.getenv("NEON_AUTH_BASE_URL") or os.getenv("VITE_NEON_AUTH_URL") or "https://ep-ancient-tree-az419aje.neonauth.c-3.ap-southeast-1.aws.neon.tech/neondb/auth").rstrip("/")
+NEON_AUTH_BASE_URL = (os.getenv("NEON_AUTH_BASE_URL") or os.getenv("VITE_NEON_AUTH_URL") or "").rstrip("/")
 NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL") or f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json"
 if not NEON_AUTH_BASE_URL:
     raise ValueError("NEON_AUTH_BASE_URL environment variable is required")
@@ -345,18 +345,8 @@ class AnomalyDetector:
 # Initialize models
 anomaly_detector = AnomalyDetector()
 
-# Train with synthetic data on startup
-def init_ml_models():
-    """Initialize ML models with synthetic training data"""
-    np.random.seed(42)
-    # Generate synthetic normal behavior (8 features: login_hour, device_count, failed_attempts, etc)
-    normal_behavior = np.random.normal(loc=[14, 2, 0, 10, 1, 0.8, 25, 100], 
-                                       scale=[3, 1, 0.5, 5, 0.5, 0.1, 10, 50], 
-                                       size=(100, 8))
-    anomaly_detector.train(normal_behavior)
-
-# Call during startup
-init_ml_models()
+# The detector remains unavailable until a validated, persisted model is loaded.
+# Never train production security decisions on synthetic startup data.
 
 class TrustScoreCalculator:
     """Calculate trust score based on multiple factors"""
@@ -405,7 +395,8 @@ async def health_check():
 
 @app.post("/api/auth/register", response_model=UserResponse)
 async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db_connection)):
-    """Register a new user"""
+    """Neon Auth owns registration for this deployment."""
+    raise HTTPException(status_code=410, detail="Registration is handled by Neon Auth")
     normalized_email = str(user_data.email).strip().lower()
     try:
         # Normalize before both lookup and insert so case variants cannot create accounts.
@@ -451,7 +442,8 @@ async def register(user_data: UserCreate, conn: AsyncConnection = Depends(get_db
 
 @app.post("/api/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin, request: Request, conn: AsyncConnection = Depends(get_db_connection)):
-    """Authenticate user and return tokens"""
+    """Neon Auth owns login and session issuance for this deployment."""
+    raise HTTPException(status_code=410, detail="Login is handled by Neon Auth")
     normalized_email = str(credentials.email).strip().lower()
     try:
         # Rate limiting by IP address
@@ -532,7 +524,8 @@ async def login(credentials: UserLogin, request: Request, conn: AsyncConnection 
 
 @app.post("/api/auth/refresh", response_model=TokenResponse)
 async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depends(get_db_connection)):
-    """Refresh access token using a validated refresh token."""
+    """Neon Auth owns token refresh for this deployment."""
+    raise HTTPException(status_code=410, detail="Token refresh is handled by Neon Auth")
     try:
         refresh_token_str = body.refresh_token
         if not refresh_token_str:
