@@ -22,6 +22,7 @@ from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from psycopg_pool import AsyncConnectionPool
 import jwt
+from jwt import PyJWKClient
 import pyotp
 from passlib.context import CryptContext
 import numpy as np
@@ -81,12 +82,12 @@ DATABASE_URL = next(
 if not DATABASE_URL:
     raise ValueError("A server-side PostgreSQL DATABASE_URL is required")
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is required")
-ALGORITHM = "HS256"
+NEON_AUTH_BASE_URL = (os.getenv("NEON_AUTH_BASE_URL") or os.getenv("VITE_NEON_AUTH_URL") or "https://ep-ancient-tree-az419aje.neonauth.c-3.ap-southeast-1.aws.neon.tech/neondb/auth").rstrip("/")
+NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL") or f"{NEON_AUTH_BASE_URL}/.well-known/jwks.json"
+if not NEON_AUTH_BASE_URL:
+    raise ValueError("NEON_AUTH_BASE_URL environment variable is required")
+NEON_JWKS_CLIENT = PyJWKClient(NEON_AUTH_JWKS_URL)
 TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 configured_origins = os.getenv("ALLOWED_ORIGINS")
 if configured_origins is None and os.getenv("ENVIRONMENT", "development").lower() == "production":
     raise ValueError("ALLOWED_ORIGINS environment variable is required in production")
@@ -275,64 +276,37 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(user_id: str, session_id: Optional[str] = None, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a short-lived JWT bound to a persisted server-side session."""
-    if expires_delta is None:
-        expires_delta = timedelta(minutes=TOKEN_EXPIRE_MINUTES)
-    
-    expire = datetime.utcnow() + expires_delta
-    to_encode = {"sub": user_id, "exp": expire, "type": "access"}
-    if session_id:
-        to_encode["sid"] = session_id
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    raise HTTPException(status_code=410, detail="Legacy token issuance has been replaced by Neon Auth")
 
 def create_refresh_token(user_id: str, session_id: Optional[str] = None) -> str:
-    """Create a refresh token bound to the authenticated session."""
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = {"sub": user_id, "exp": expire, "type": "refresh"}
-    if session_id:
-        to_encode["sid"] = session_id
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    raise HTTPException(status_code=410, detail="Legacy token issuance has been replaced by Neon Auth")
 
 def verify_token(token: str, expected_type: str = "access") -> Optional[str]:
-    """Verify a typed JWT and return its subject."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None or payload.get("type") != expected_type:
-            return None
-        return user_id
-    except jwt.ExpiredSignatureError:
+        return str(decode_neon_token(token).get("sub"))
+    except HTTPException:
         return None
-    except jwt.InvalidTokenError:
-        return None
+
+def decode_neon_token(token: str) -> Dict[str, Any]:
+    """Verify a Neon Auth JWT using the hosted JWKS endpoint."""
+    try:
+        signing_key = NEON_JWKS_CLIENT.get_signing_key_from_jwt(token)
+        return jwt.decode(token, signing_key.key, algorithms=["RS256", "ES256"], options={"verify_aud": False})
+    except Exception as exc:
+        print(f"[v0] Neon Auth token verification failed: {exc}")
+        raise HTTPException(status_code=401, detail="Invalid or expired access token")
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    conn: AsyncConnection = Depends(get_db_connection),
 ) -> str:
-    """Authenticate requests and ensure the user still exists."""
+    """Authenticate requests with a Neon Auth bearer token."""
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Authentication required")
-    user_id = verify_token(credentials.credentials)
+    payload = decode_neon_token(credentials.credentials)
+    user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-    session_id = payload.get("sid")
-    if not session_id:
-        raise HTTPException(status_code=401, detail="Session-bound token required")
-    result = await conn.execute(
-        """SELECT 1 FROM auth_sessions
-           WHERE id = %s AND user_id = %s AND expires_at > NOW() AND revoked_at IS NULL""",
-        (session_id, user_id),
-    )
-    if not await result.fetchone():
-        raise HTTPException(status_code=401, detail="Session expired or revoked")
-    return user_id
+        raise HTTPException(status_code=401, detail="Neon Auth token has no subject")
+    return str(user_id)
 
 
 def ensure_owner(requested_user_id: str, current_user_id: str) -> None:
@@ -603,15 +577,17 @@ async def refresh_token(body: RefreshTokenRequest, conn: AsyncConnection = Depen
 # ============================================================================
 
 @app.get("/api/auth/me", response_model=UserResponse)
-async def current_user(user_id: str = Depends(get_current_user), conn: AsyncConnection = Depends(get_db_connection)):
-    result = await conn.execute(
-        "SELECT id, email, mfa_enabled, created_at FROM users WHERE id = %s",
-        (user_id,),
+async def current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    user_id: str = Depends(get_current_user),
+):
+    payload = decode_neon_token(credentials.credentials)
+    return UserResponse(
+        id=user_id,
+        email=str(payload.get("email", "")),
+        mfa_enabled=False,
+        created_at=str(payload.get("createdAt") or payload.get("created_at") or datetime.utcnow().isoformat()),
     )
-    user = await result.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return UserResponse(id=str(user[0]), email=user[1], mfa_enabled=bool(user[2]), created_at=user[3].isoformat())
 
 # ============================================================================
 # ENDPOINT: LOGOUT

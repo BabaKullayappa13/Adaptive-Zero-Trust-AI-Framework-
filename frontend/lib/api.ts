@@ -15,60 +15,20 @@ class APIClient {
       },
     })
 
-    // Add token to requests
+    // Neon Auth issues the bearer token; the backend verifies it against Neon Auth JWKS.
     this.client.interceptors.request.use((config) => {
       const token = typeof window !== 'undefined' ? sessionStorage.getItem('access_token') : null
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
-      }
+      if (token) config.headers.Authorization = `Bearer ${token}`
       return config
     })
 
-    // Handle token expiration and refresh
-    this.client.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        if (error.response?.status === 401) {
-          // Never refresh the refresh request itself or retry a request twice.
-          if (typeof window !== 'undefined') {
-            const failedUrl = String(error.config?.url ?? '')
-            if (failedUrl.endsWith('/auth/refresh') || failedUrl.endsWith('/auth/login') || failedUrl.endsWith('/auth/register')) {
-              return Promise.reject(error)
-            }
-            const refreshToken = sessionStorage.getItem('refresh_token')
-            if (refreshToken) {
-              try {
-                const requestConfig = error.config as typeof error.config & { _retry?: boolean }
-                if (requestConfig?._retry) {
-                  return Promise.reject(error)
-                }
-                requestConfig._retry = true
-                const response = await this.client.post('/auth/refresh', { refresh_token: refreshToken })
-                const { access_token, refresh_token: nextRefreshToken } = response.data
-                sessionStorage.setItem('access_token', access_token)
-                if (nextRefreshToken) sessionStorage.setItem('refresh_token', nextRefreshToken)
-                if (error.config) {
-                  error.config.headers = error.config.headers ?? {}
-                  error.config.headers.Authorization = `Bearer ${access_token}`
-                  return this.client(error.config)
-                }
-                return Promise.reject(error)
-              } catch (refreshError) {
-                // Refresh failed - redirect to login and settle the request.
-                sessionStorage.removeItem('access_token')
-                sessionStorage.removeItem('refresh_token')
-                window.location.href = '/auth/login'
-                return Promise.reject(refreshError)
-              }
-            } else {
-              window.location.href = '/auth/login'
-              return Promise.reject(error)
-            }
-          }
-        }
-        return Promise.reject(error)
+    this.client.interceptors.response.use((response) => response, (error) => {
+      if (error.response?.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth/')) {
+        sessionStorage.removeItem('access_token')
+        window.location.href = '/auth/login'
       }
-    )
+      return Promise.reject(error)
+    })
   }
 
   async get<T = any>(url: string, config?: Parameters<AxiosInstance['get']>[1]) {
