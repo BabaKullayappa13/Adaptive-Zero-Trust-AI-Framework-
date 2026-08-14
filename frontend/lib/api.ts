@@ -1,7 +1,9 @@
 import axios, { AxiosInstance } from 'axios'
 import { getNeonToken } from './auth-store'
 
-const API_BASE = '/api'
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  'https://adaptive-zero-trust-ai-framework-yh2l.onrender.com';
 
 
 class APIClient {
@@ -9,7 +11,7 @@ class APIClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: API_BASE,
+      baseURL: API_BASE_URL,
       timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
