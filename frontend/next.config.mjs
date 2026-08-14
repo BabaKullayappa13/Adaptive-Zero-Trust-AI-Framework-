@@ -53,7 +53,9 @@ const nextConfig = {
       // before proxying the remaining API surface to FastAPI.
       afterFiles: [
         {
-          source: "/api/:path*",
+          // Keep the Neon Auth catch-all route local. Proxying it to the
+          // FastAPI service caused login requests to hit localhost:8000.
+          source: "/api/:path((?!neon-auth(?:/|$)).*)",
           destination: `${backendApiUrl}/api/:path*`,
         },
       ],
