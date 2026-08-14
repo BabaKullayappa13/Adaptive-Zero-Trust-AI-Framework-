@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const neonAuthBaseUrl = (process.env.NEON_AUTH_BASE_URL || process.env.VITE_NEON_AUTH_URL || '').replace(/\/$/, '')
+const neonAuthBaseUrl = (
+  process.env.NEON_AUTH_BASE_URL ||
+  process.env.NEON_AUTH_URL ||
+  process.env.NEXT_PUBLIC_NEON_AUTH_URL ||
+  process.env.VITE_NEON_AUTH_URL ||
+  ''
+).replace(/\/$/, '')
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   if (!neonAuthBaseUrl) {
