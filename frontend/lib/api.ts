@@ -10,14 +10,14 @@ class APIClient {
 
   constructor() {
     this.client = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: API_BASE_URL.replace(/\/$/, ''),
       timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
       },
     })
 
-    // Attach the Neon Auth JWT to requests sent to FastAPI.
+    // Attach Neon Auth JWT to FastAPI requests
     this.client.interceptors.request.use(async (config) => {
       if (typeof window !== 'undefined') {
         try {
@@ -27,15 +27,15 @@ class APIClient {
             config.headers = config.headers || {}
             config.headers.Authorization = `Bearer ${token}`
           }
-        } catch (error) {
-          console.warn('Unable to get Neon Auth token')
+        } catch {
+          // Public endpoints can continue without a token.
         }
       }
 
       return config
     })
 
-    // Handle unauthorized API requests.
+    // Handle unauthorized API responses
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
@@ -52,16 +52,35 @@ class APIClient {
     )
   }
 
-  // Remove an old /api prefix if an existing component passes it.
+  /*
+   * FastAPI routes in this project use /api.
+   *
+   * Examples:
+   * /api/health
+   * /api/auth/login
+   * /api/dashboard/summary
+   */
   private normalizeUrl(url: string): string {
-    return url.replace(/^\/api(?=\/|$)/, '')
+    if (!url.startsWith('/')) {
+      url = `/${url}`
+    }
+
+    // If an old caller sends /health, convert it to /api/health.
+    if (!url.startsWith('/api/')) {
+      return `/api${url}`
+    }
+
+    return url
   }
 
   async get<T = any>(
     url: string,
     config?: Parameters<AxiosInstance['get']>[1]
   ) {
-    return this.client.get<T>(this.normalizeUrl(url), config)
+    return this.client.get<T>(
+      this.normalizeUrl(url),
+      config
+    )
   }
 
   async post<T = any>(
@@ -111,11 +130,15 @@ class APIClient {
   }
 
   // ============================================================
-  // Authentication API
+  // Authentication
   // ============================================================
 
-  async register(email: string, password: string, name?: string) {
-    return this.client.post('/auth/register', {
+  async register(
+    email: string,
+    password: string,
+    name?: string
+  ) {
+    return this.client.post('/api/auth/register', {
       email,
       password,
       name,
@@ -127,25 +150,30 @@ class APIClient {
     password: string,
     totpCode?: string
   ) {
-    return this.client.post('/auth/login', {
+    return this.client.post('/api/auth/login', {
       email,
       password,
-      ...(totpCode ? { totp_code: totpCode } : {}),
+      ...(totpCode
+        ? { totp_code: totpCode }
+        : {}),
     })
   }
 
   async getCurrentUser() {
-    return this.client.get('/auth/me')
+    return this.client.get('/api/auth/me')
   }
 
   async logout() {
-    return this.client.post('/auth/logout')
+    return this.client.post('/api/auth/logout')
   }
 
   async forgotPassword(email: string) {
-    return this.client.post('/auth/forgot-password', {
-      email,
-    })
+    return this.client.post(
+      '/api/auth/forgot-password',
+      {
+        email,
+      }
+    )
   }
 
   async resetPassword(
@@ -153,11 +181,14 @@ class APIClient {
     token: string,
     newPassword: string
   ) {
-    return this.client.post('/auth/reset-password', {
-      email,
-      token,
-      new_password: newPassword,
-    })
+    return this.client.post(
+      '/api/auth/reset-password',
+      {
+        email,
+        token,
+        new_password: newPassword,
+      }
+    )
   }
 
   // ============================================================
@@ -165,7 +196,9 @@ class APIClient {
   // ============================================================
 
   async getDashboardSummary() {
-    return this.client.get('/dashboard/summary')
+    return this.client.get(
+      '/api/dashboard/summary'
+    )
   }
 
   // ============================================================
@@ -173,7 +206,9 @@ class APIClient {
   // ============================================================
 
   async getTrustScore(userId: string) {
-    return this.client.get(`/trust/score/${userId}`)
+    return this.client.get(
+      `/api/trust/score/${userId}`
+    )
   }
 
   // ============================================================
@@ -184,10 +219,13 @@ class APIClient {
     userId: string,
     sessionData: Record<string, any>
   ) {
-    return this.client.post('/risk/detect', {
-      user_id: userId,
-      session_data: sessionData,
-    })
+    return this.client.post(
+      '/api/risk/detect',
+      {
+        user_id: userId,
+        session_data: sessionData,
+      }
+    )
   }
 
   // ============================================================
@@ -195,27 +233,37 @@ class APIClient {
   // ============================================================
 
   async getContinuousStatus() {
-    return this.client.get('/continuous/status')
+    return this.client.get(
+      '/api/continuous/status'
+    )
   }
 
   async submitBehaviorEvent(
     features: Record<string, unknown>,
     sessionId?: number
   ) {
-    return this.client.post('/continuous/events', {
-      features,
-      ...(sessionId ? { session_id: sessionId } : {}),
-    })
+    return this.client.post(
+      '/api/continuous/events',
+      {
+        features,
+        ...(sessionId
+          ? { session_id: sessionId }
+          : {}),
+      }
+    )
   }
 
   async completeContinuousStepUp(
     sessionId: number,
     totpCode: string
   ) {
-    return this.client.post('/continuous/step-up', {
-      session_id: sessionId,
-      totp_code: totpCode,
-    })
+    return this.client.post(
+      '/api/continuous/step-up',
+      {
+        session_id: sessionId,
+        totp_code: totpCode,
+      }
+    )
   }
 
   // ============================================================
@@ -226,9 +274,12 @@ class APIClient {
     userId: string,
     limit: number = 50
   ) {
-    return this.client.get(`/audit/logs/${userId}`, {
-      params: { limit },
-    })
+    return this.client.get(
+      `/api/audit/logs/${userId}`,
+      {
+        params: { limit },
+      }
+    )
   }
 
   // ============================================================
@@ -236,22 +287,26 @@ class APIClient {
   // ============================================================
 
   async healthCheck() {
-    return this.client.get('/health')
+    return this.client.get('/api/health')
   }
 
   // ============================================================
   // Admin Metrics
   // ============================================================
 
-  async getMetricsSummary(hours: number = 24) {
+  async getMetricsSummary(
+    hours: number = 24
+  ) {
     return this.client.get(
-      `/admin/metrics/summary?hours=${hours}`
+      `/api/admin/metrics/summary?hours=${hours}`
     )
   }
 
-  async getAuthStats(hours: number = 24) {
+  async getAuthStats(
+    hours: number = 24
+  ) {
     return this.client.get(
-      `/admin/metrics/auth-stats?hours=${hours}`
+      `/api/admin/metrics/auth-stats?hours=${hours}`
     )
   }
 
@@ -260,13 +315,17 @@ class APIClient {
     hours: number = 24
   ) {
     return this.client.get(
-      `/admin/metrics/timeseries?metric_type=${metricType}&hours=${hours}`
+      `/api/admin/metrics/timeseries?metric_type=${encodeURIComponent(
+        metricType
+      )}&hours=${hours}`
     )
   }
 
-  async getRPS(hours: number = 1) {
+  async getRPS(
+    hours: number = 1
+  ) {
     return this.client.get(
-      `/admin/metrics/rps?hours=${hours}`
+      `/api/admin/metrics/rps?hours=${hours}`
     )
   }
 
@@ -275,7 +334,7 @@ class APIClient {
     hours: number = 24
   ) {
     return this.client.post(
-      '/admin/metrics/export/csv',
+      '/api/admin/metrics/export/csv',
       undefined,
       {
         params: {
@@ -286,9 +345,11 @@ class APIClient {
     )
   }
 
-  async getResearchReport(hours: number = 24) {
+  async getResearchReport(
+    hours: number = 24
+  ) {
     return this.client.get(
-      `/admin/metrics/research-report?hours=${hours}`
+      `/api/admin/metrics/research-report?hours=${hours}`
     )
   }
 
@@ -300,7 +361,7 @@ class APIClient {
     payload: Record<string, unknown>
   ) {
     return this.client.post(
-      '/explainability/decision',
+      '/api/explainability/decision',
       payload
     )
   }
@@ -309,7 +370,7 @@ class APIClient {
     payload: Record<string, unknown>
   ) {
     return this.client.post(
-      '/explainability/feature-importance',
+      '/api/explainability/feature-importance',
       payload
     )
   }
@@ -318,7 +379,7 @@ class APIClient {
     payload: Record<string, unknown>
   ) {
     return this.client.post(
-      '/explainability/risk-factors',
+      '/api/explainability/risk-factors',
       payload
     )
   }
@@ -327,7 +388,7 @@ class APIClient {
     payload: Record<string, unknown>
   ) {
     return this.client.post(
-      '/explainability/what-if',
+      '/api/explainability/what-if',
       payload
     )
   }
@@ -337,11 +398,17 @@ class APIClient {
   // ============================================================
 
   async getActivePolicies() {
-    return this.client.get('/policies/active')
+    return this.client.get(
+      '/api/policies/active'
+    )
   }
 
-  async getPolicyDetails(policyId: number) {
-    return this.client.get(`/policies/${policyId}`)
+  async getPolicyDetails(
+    policyId: number
+  ) {
+    return this.client.get(
+      `/api/policies/${policyId}`
+    )
   }
 
   // ============================================================
@@ -352,21 +419,28 @@ class APIClient {
     reportType?: string,
     days: number = 30
   ) {
-    return this.client.get('/reports', {
-      params: {
-        report_type: reportType,
-        days,
-      },
-    })
+    return this.client.get(
+      '/api/reports',
+      {
+        params: {
+          report_type: reportType,
+          days,
+        },
+      }
+    )
   }
 
   async getReportSchedules() {
-    return this.client.get('/reports/schedules')
+    return this.client.get(
+      '/api/reports/schedules'
+    )
   }
 
-  async generateDailySummary(reportDate?: string) {
+  async generateDailySummary(
+    reportDate?: string
+  ) {
     return this.client.post(
-      '/reports/daily-summary',
+      '/api/reports/daily-summary',
       undefined,
       {
         params: {
@@ -381,23 +455,33 @@ class APIClient {
   // ============================================================
 
   async getOpenApiSpec() {
-    return this.client.get('/documentation/openapi')
+    return this.client.get(
+      '/api/documentation/openapi'
+    )
   }
 
   async getArchitecture() {
-    return this.client.get('/documentation/architecture')
+    return this.client.get(
+      '/api/documentation/architecture'
+    )
   }
 
   async getErDiagram() {
-    return this.client.get('/documentation/er-diagram')
+    return this.client.get(
+      '/api/documentation/er-diagram'
+    )
   }
 
   async getDeploymentGuide() {
-    return this.client.get('/documentation/deployment')
+    return this.client.get(
+      '/api/documentation/deployment'
+    )
   }
 
   async getApiReference() {
-    return this.client.get('/documentation/reference')
+    return this.client.get(
+      '/api/documentation/reference'
+    )
   }
 }
 
