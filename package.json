@@ -1,0 +1,15 @@
+{
+  "name": "zero-trust-ai-framework",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Adaptive Zero Trust-AI Framework for Continuous Multi-Factor Authentication",
+  "packageManager": "pnpm@10.34.3",
+  "scripts": {
+    "dev": "pnpm --filter zero-trust-ai-frontend dev",
+    "build": "pnpm --filter zero-trust-ai-frontend build",
+    "start": "pnpm --filter zero-trust-ai-frontend start"
+  },
+  "dependencies": {
+    "next": "^14.0.0"
+  }
+}
