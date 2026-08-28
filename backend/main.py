@@ -15,8 +15,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 import numpy as np
 
-from backend.database import db_manager, get_db, DatabaseConnection
-from backend.security import (
+from database import db_manager, get_db, DatabaseConnection
+from security import (
     hash_password, verify_password,
     hash_secret_pin, verify_secret_pin, validate_secure_pin_strength,
     generate_secure_otp, generate_captcha_challenge, verify_captcha_solution,
@@ -24,18 +24,18 @@ from backend.security import (
     decode_token, verify_token, get_current_user, ensure_owner,
     generate_totp_secret, get_totp_uri, verify_totp
 )
-from backend.trust_risk_engine import TrustRiskEngine
-from backend.behavioral_analysis import BehavioralAnalysisEngine
-from backend.device_fingerprint import DeviceFingerprintEngine
-from backend.location_tracking import LocationTrackingEngine
-from backend.continuous_auth import ContinuousAuthenticationOrchestrator
-from backend.ml_model_training import MLModelTrainer
-from backend.explainable_ai import ExplainableAIService
-from backend.federated_learning import FederatedLearningService
-from backend.hybrid_cloud import HybridCloudService
-from backend.zero_trust_policy import ZeroTrustPolicyEngine
-from backend.research_evaluation import ResearchEvaluationModule
-from backend.ieee_baseline_comparison import IEEEBaselineComparison
+from trust_risk_engine import TrustRiskEngine
+from behavioral_analysis import BehavioralAnalysisEngine
+from device_fingerprint import DeviceFingerprintEngine
+from location_tracking import LocationTrackingEngine
+from continuous_auth import ContinuousAuthenticationOrchestrator
+from ml_model_training import MLModelTrainer
+from explainable_ai import ExplainableAIService
+from federated_learning import FederatedLearningService
+from hybrid_cloud import HybridCloudService
+from zero_trust_policy import ZeroTrustPolicyEngine
+from research_evaluation import ResearchEvaluationModule
+from ieee_baseline_comparison import IEEEBaselineComparison
 
 # Initialize Services
 db_connect = db_manager.get_connection

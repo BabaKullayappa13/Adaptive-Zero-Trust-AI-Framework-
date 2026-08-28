@@ -5,10 +5,7 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
-try:
-    from .email_service import EmailDeliveryError, send_password_reset_email
-except ImportError:
-    from email_service import EmailDeliveryError, send_password_reset_email
+from email_service import EmailDeliveryError, send_password_reset_email
 
 class PasswordResetService:
     """Handle password reset flow"""
@@ -103,7 +100,7 @@ class PasswordResetService:
     async def reset_password(self, email: str, token: str, new_password: str) -> bool:
         """Reset user password"""
         try:
-            from .main import hash_password
+            from security import hash_password
             
             token_hash = hashlib.sha256(token.encode()).hexdigest()
             password_hash = hash_password(new_password)

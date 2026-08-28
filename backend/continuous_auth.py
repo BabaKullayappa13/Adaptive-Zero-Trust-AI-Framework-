@@ -7,10 +7,10 @@ from typing import Dict, Optional, Any, List
 from datetime import datetime, timedelta
 import uuid
 
-from backend.behavioral_analysis import BehavioralAnalysisEngine
-from backend.device_fingerprint import DeviceFingerprintEngine
-from backend.trust_risk_engine import TrustRiskEngine
-from backend.location_tracking import LocationTrackingEngine
+from behavioral_analysis import BehavioralAnalysisEngine
+from device_fingerprint import DeviceFingerprintEngine
+from trust_risk_engine import TrustRiskEngine
+from location_tracking import LocationTrackingEngine
 
 
 class ContinuousAuthenticationOrchestrator:
@@ -248,7 +248,7 @@ class ContinuousAuthenticationOrchestrator:
         totp_code: Optional[str] = None
     ) -> Dict[str, Any]:
         """Verify Secret PIN or TOTP for step-up authentication during an active session"""
-        from backend.security import verify_secret_pin, verify_totp
+        from security import verify_secret_pin, verify_totp
 
         async with self.db_connect() as conn:
             res = await conn.execute(

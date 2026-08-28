@@ -923,7 +923,7 @@ class DatabaseManager:
 
     async def _seed_defaults(self, conn: DatabaseConnection):
         """Seed default admin account, policies, federated rounds, and cloud topology if not present"""
-        from backend.security import hash_password, hash_secret_pin
+        from security import hash_password, hash_secret_pin
 
         # 1. Seed demo/admin user
         check_user = await conn.execute("SELECT id FROM users WHERE email = %s", ("admin@zerotrust.ai",))

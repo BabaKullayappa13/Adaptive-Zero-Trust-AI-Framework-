@@ -342,7 +342,7 @@ class APIDocumentationService:
                 {
                     "step": 5,
                     "title": "Start Services",
-                    "backend": "python -m uvicorn backend.main:app --reload",
+                    "backend": "uvicorn main:app --reload",
                     "frontend": "npm run dev"
                 }
             ],

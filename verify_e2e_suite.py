@@ -20,7 +20,10 @@ import uuid
 import time
 import numpy as np
 
-# Ensure backend path is configured
+# Ensure backend path is configured in sys.path
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "backend"))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 try:
@@ -29,22 +32,22 @@ try:
 except Exception:
     pass
 
-from backend.database import db_manager
-from backend.security import (
+from database import db_manager
+from security import (
     hash_password, verify_password,
     hash_secret_pin, verify_secret_pin, validate_secure_pin_strength,
     generate_secure_otp, generate_captcha_challenge, verify_captcha_solution,
     create_access_token, decode_token
 )
-from backend.ml_model_training import MLModelTrainer
-from backend.trust_risk_engine import TrustRiskEngine
-from backend.behavioral_analysis import BehavioralAnalysisEngine
-from backend.continuous_auth import ContinuousAuthenticationOrchestrator
-from backend.explainable_ai import ExplainableAIService
-from backend.federated_learning import FederatedLearningService
-from backend.hybrid_cloud import HybridCloudService
-from backend.research_evaluation import ResearchEvaluationModule
-from backend.ieee_baseline_comparison import IEEEBaselineComparison
+from ml_model_training import MLModelTrainer
+from trust_risk_engine import TrustRiskEngine
+from behavioral_analysis import BehavioralAnalysisEngine
+from continuous_auth import ContinuousAuthenticationOrchestrator
+from explainable_ai import ExplainableAIService
+from federated_learning import FederatedLearningService
+from hybrid_cloud import HybridCloudService
+from research_evaluation import ResearchEvaluationModule
+from ieee_baseline_comparison import IEEEBaselineComparison
 
 async def run_e2e_tests():
     print("=" * 80)
