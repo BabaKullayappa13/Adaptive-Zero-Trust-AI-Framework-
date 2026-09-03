@@ -11,8 +11,17 @@ export default function AdminLiveMetrics() {
     const load = async () => {
       try {
         const response = await fetch('/api/admin/metrics/summary?hours=24', { cache: 'no-store' })
-        if (!response.ok) throw new Error('metrics unavailable')
-        const value = await response.json()
+        const contentType = response.headers.get('content-type') || ''
+        const body = await response.text()
+        let value: Record<string, unknown> | null = null
+        if (body.trim() && contentType.includes('application/json')) {
+          try {
+            value = JSON.parse(body) as Record<string, unknown>
+          } catch {
+            value = null
+          }
+        }
+        if (!response.ok || !value) throw new Error('metrics unavailable')
         if (!cancelled) { setData(value); setError(false) }
       } catch {
         if (!cancelled) setError(true)
