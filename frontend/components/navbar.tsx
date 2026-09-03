@@ -25,7 +25,7 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
 
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-white/[.08] bg-[#050816]/95 px-5 py-6 backdrop-blur-xl lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-border bg-background/95 px-5 py-6 backdrop-blur-xl lg:flex">
         <Link href="/dashboard" className="flex items-center gap-3 px-2">
           <span className="flex size-10 items-center justify-center rounded-xl bg-cyan-300/10 text-cyan-300">
             <ShieldCheck className="size-5" />

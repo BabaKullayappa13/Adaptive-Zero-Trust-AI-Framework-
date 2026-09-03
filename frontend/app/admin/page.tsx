@@ -24,7 +24,17 @@ export default function AdminPage() {
     const load = async () => {
       try {
         const response = await fetch('/api/health', { cache: 'no-store' })
-        const data = await response.json()
+        const contentType = response.headers.get('content-type') || ''
+        const body = await response.text()
+        let data: { status: string; database?: string; ai_engine?: string } | null = null
+        if (body.trim() && contentType.includes('application/json')) {
+          try {
+            data = JSON.parse(body) as { status: string; database?: string; ai_engine?: string }
+          } catch {
+            data = null
+          }
+        }
+        if (!response.ok || !data) throw new Error('health unavailable')
         if (!cancelled) setHealth(data)
       } catch {
         if (!cancelled) setHealth({ status: 'unavailable' })

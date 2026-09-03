@@ -81,6 +81,25 @@ const REFRESH_KEY = 'azt_refresh_token'
 const USER_KEY = 'azt_user_profile'
 const SESSION_KEY = 'azt_session_id'
 
+async function readApiResponse<T = Record<string, unknown>>(response: Response): Promise<T> {
+  const contentType = response.headers.get('content-type') || ''
+  const raw = await response.text()
+  if (!raw.trim()) return {} as T
+  if (contentType.includes('application/json')) {
+    try {
+      return JSON.parse(raw) as T
+    } catch {
+      throw new Error('The security service returned malformed JSON.')
+    }
+  }
+  const message = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  throw new Error(message ? message.slice(0, 180) : 'The security service returned an unexpected response.')
+}
+
+function apiError(data: Record<string, unknown>, fallback: string) {
+  return typeof data.detail === 'string' ? data.detail : typeof data.message === 'string' ? data.message : fallback
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: null,
@@ -109,7 +128,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           secret_pin: secretPin ? secretPin.trim() : undefined
         })
       })
-      const data = await res.json()
+      const data = await readApiResponse<Record<string, any>>(res)
       if (!res.ok) {
         throw new Error(data.detail || 'Registration failed')
       }
@@ -132,7 +151,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           verification_code: verificationCode.trim()
         })
       })
-      const data = await res.json()
+      const data = await readApiResponse<Record<string, any>>(res)
       if (!res.ok) {
         throw new Error(data.detail || 'Email verification failed')
       }
@@ -151,7 +170,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() })
       })
-      const data = await res.json()
+      const data = await readApiResponse<Record<string, any>>(res)
       if (!res.ok) throw new Error(data.detail || 'Failed to resend verification')
       return data
     } catch (err: any) {
@@ -171,7 +190,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           confirm_pin: confirmPin.trim()
         })
       })
-      const data = await res.json()
+      const data = await readApiResponse<Record<string, any>>(res)
       if (!res.ok) {
         throw new Error(data.detail || 'Secure PIN setup failed')
       }
@@ -187,7 +206,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await fetch(`/api/auth/secure-pin-status?email=${encodeURIComponent(email.trim())}`)
       if (!res.ok) return { exists: false, secure_pin_configured: false, email_verified: false }
-      return await res.json()
+      return await readApiResponse(res)
     } catch {
       return { exists: false, secure_pin_configured: false, email_verified: false }
     }
@@ -195,7 +214,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   generateCaptcha: async () => {
     const res = await fetch('/api/auth/captcha/generate', { method: 'POST' })
-    const data = await res.json()
+    const data = await readApiResponse<{ challenge_id: string; question: string; detail?: string }>(res)
     if (!res.ok) throw new Error(data.detail || 'Failed to generate CAPTCHA')
     return data
   },
@@ -206,7 +225,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ challenge_id: challengeId, solution: solution.trim() })
     })
-    const data = await res.json()
+    const data = await readApiResponse<Record<string, any>>(res)
     if (!res.ok) throw new Error(data.detail || 'Incorrect CAPTCHA solution')
     return true
   },
@@ -217,7 +236,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim() })
     })
-    const data = await res.json()
+    const data = await readApiResponse<{ demo_otp?: string; challenge_id: string; detail?: string }>(res)
     if (!res.ok) throw new Error(data.detail || 'Failed to send OTP')
     return data
   },
@@ -228,7 +247,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), otp_code: otpCode.trim() })
     })
-    const data = await res.json()
+    const data = await readApiResponse<Record<string, any>>(res)
     if (!res.ok) throw new Error(data.detail || 'Incorrect OTP code')
     return true
   },
@@ -239,7 +258,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), secret_pin: secretPin.trim() })
     })
-    const data = await res.json()
+    const data = await readApiResponse<Record<string, any>>(res)
     if (!res.ok) throw new Error(data.detail || 'Incorrect Secure PIN')
     return true
   },
@@ -265,7 +284,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         })
       })
 
-      const data = await res.json()
+      const data = await readApiResponse<Record<string, any>>(res)
       if (!res.ok) throw new Error(data.detail || 'Authentication failed')
 
       const token = data.access_token
@@ -320,7 +339,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         })
       })
 
-      const data = await res.json()
+      const data = await readApiResponse<Record<string, any>>(res)
 
       if (!res.ok) {
         const errorMsg = data.detail || 'Invalid email or password.'
@@ -373,7 +392,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         })
       })
 
-      const data = await res.json()
+      const data = await readApiResponse<Record<string, any>>(res)
 
       if (!res.ok) {
         const errorMsg = data.detail || 'Secret PIN verification failed.'
@@ -413,7 +432,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim() })
     })
-    const data = await res.json()
+    const data = await readApiResponse<{ demo_recovery_code?: string; message: string; detail?: string }>(res)
     if (!res.ok) throw new Error(data.detail || 'Failed to request recovery code')
     return data
   },
@@ -429,7 +448,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         confirm_new_secret_pin: confirmNewSecretPin.trim()
       })
     })
-    const data = await res.json()
+    const data = await readApiResponse<Record<string, any>>(res)
     if (!res.ok) throw new Error(data.detail || 'PIN reset failed')
     return data
   },
@@ -448,7 +467,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         confirm_new_secret_pin: confirmNewSecretPin.trim()
       })
     })
-    const data = await res.json()
+    const data = await readApiResponse<Record<string, any>>(res)
     if (!res.ok) throw new Error(data.detail || 'Failed to change PIN')
     return data
   },
@@ -461,7 +480,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         headers: { Authorization: `Bearer ${token}` }
       })
       if (!res.ok) return null
-      return await res.json()
+      return await readApiResponse(res)
     } catch {
       return null
     }
@@ -525,7 +544,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })
 
       if (res.ok) {
-        const freshUser = await res.json()
+        const freshUser = await readApiResponse<User>(res)
+        if (!freshUser || typeof freshUser !== 'object' || typeof freshUser.id !== 'string') {
+          throw new Error('The security service returned an invalid user profile.')
+        }
         set({
           user: freshUser,
           accessToken: token,
