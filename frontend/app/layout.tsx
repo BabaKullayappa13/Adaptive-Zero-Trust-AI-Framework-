@@ -3,8 +3,8 @@ import './globals.css'
 import ContinuousAuthProvider from '@/components/continuous-auth-provider'
 
 export const metadata: Metadata = {
-  title: 'Adaptive Zero Trust AI | Continuous Multi-Factor Authentication',
-  description: 'Continuous multi-factor authentication, adaptive trust & risk scoring, Secret PIN verification, Explainable AI, and Hybrid Cloud security.',
+  title: 'Adaptive Zero Trust AI | Security Control Plane',
+  description: 'A premium adaptive security control plane for continuous verification, explainable risk, and zero trust policy enforcement.',
 }
 
 export default function RootLayout({

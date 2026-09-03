@@ -1,5 +1,21 @@
-import axios, { AxiosInstance } from 'axios'
+import axios, { AxiosError, AxiosInstance } from 'axios'
 import { getNeonToken } from './auth-store'
+
+export function getApiErrorMessage(error: unknown, fallback = 'The security service is unavailable. Please try again.') {
+  if (error instanceof AxiosError) {
+    const data = error.response?.data
+    if (typeof data === 'string' && data.trim()) {
+      const clean = data.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+      return clean.length > 180 ? `${clean.slice(0, 177)}...` : clean
+    }
+    if (data && typeof data === 'object') {
+      const detail = (data as { detail?: unknown; message?: unknown }).detail ?? (data as { message?: unknown }).message
+      if (typeof detail === 'string' && detail.trim()) return detail
+    }
+    if (error.message && !error.message.toLowerCase().includes('network error')) return error.message
+  }
+  return fallback
+}
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || ''
@@ -36,6 +52,9 @@ class APIClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
+        if (error instanceof AxiosError) {
+          error.message = getApiErrorMessage(error)
+        }
         return Promise.reject(error)
       }
     )
@@ -113,11 +132,11 @@ class APIClient {
   }
 
   async forgotPassword(email: string) {
-    return this.client.post('/api/auth/login', { email })
+    return this.client.post('/api/auth/forgot-password', { email })
   }
 
   async resetPassword(email: string, token: string, newPassword: string) {
-    return this.client.post('/api/auth/login', { email })
+    return this.client.post('/api/auth/reset-password', { email, token, new_password: newPassword })
   }
 
   // ============================================================
