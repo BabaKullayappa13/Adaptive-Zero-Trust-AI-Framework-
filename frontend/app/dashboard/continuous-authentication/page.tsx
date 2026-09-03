@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Activity, ArrowLeft, CheckCircle2, KeyRound, LockKeyhole, MousePointer, RefreshCw, ShieldAlert, Sparkles, Zap } from 'lucide-react'
 import Link from 'next/link'
 import Navbar from '@/components/navbar'
@@ -16,7 +16,7 @@ export default function ContinuousAuthenticationPage() {
   const [loading, setLoading] = useState(false)
   const [simulatingAnomaly, setSimulatingAnomaly] = useState(false)
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     setLoading(true)
     try {
       const res = await apiClient.getContinuousStatus(sessionId || 1)
@@ -26,13 +26,13 @@ export default function ContinuousAuthenticationPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [sessionId])
 
   useEffect(() => {
     void fetchStatus()
     const interval = setInterval(fetchStatus, 15000)
     return () => clearInterval(interval)
-  }, [sessionId])
+  }, [fetchStatus])
 
   const handleSimulateAnomaly = async () => {
     setSimulatingAnomaly(true)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Activity, ArrowLeft, BrainCircuit, CheckCircle2, HelpCircle, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import Navbar from '@/components/navbar'
@@ -15,7 +15,7 @@ export default function UserXAIPage() {
   const [explanation, setExplanation] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
-  const fetchExplanation = async () => {
+  const fetchExplanation = useCallback(async () => {
     setLoading(true)
     try {
       const res = await apiClient.explainDecision({
@@ -37,11 +37,11 @@ export default function UserXAIPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [riskScore, trustScore])
 
   useEffect(() => {
     void fetchExplanation()
-  }, [trustScore, riskScore])
+  }, [fetchExplanation])
 
   return (
     <div className="soc-shell text-slate-100">
