@@ -544,7 +544,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })
 
       if (res.ok) {
-        const freshUser = await res.json()
+        const freshUser = await readApiResponse<User>(res)
+        if (!freshUser || typeof freshUser !== 'object' || typeof freshUser.id !== 'string') {
+          throw new Error('The security service returned an invalid user profile.')
+        }
         set({
           user: freshUser,
           accessToken: token,
