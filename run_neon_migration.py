@@ -1,8 +1,9 @@
 import os
 import sys
-from dotenv import load_dotenv
+import psycopg
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 url = os.getenv("DATABASE_URL")
 if not url:

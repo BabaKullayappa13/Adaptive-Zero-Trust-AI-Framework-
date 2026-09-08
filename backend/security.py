@@ -47,19 +47,40 @@ def get_jwks_client(jwks_url: Optional[str] = None) -> Optional[PyJWKClient]:
 
 def get_jwks_status() -> Dict[str, Any]:
     """Diagnostic check for Neon Auth and JWKS configuration"""
+    active_keys = 0
+    key_ids = []
+    supported_algorithms = ["EdDSA", "RS256", "ES256"]
+    reachable = False
+    
+    if NEON_AUTH_JWKS_URL:
+        try:
+            client = get_jwks_client()
+            if client:
+                jwk_set = client.get_jwk_set()
+                active_keys = len(jwk_set.keys)
+                key_ids = [k.key_id for k in jwk_set.keys if getattr(k, "key_id", None)]
+                reachable = True
+        except Exception as e:
+            reachable = False
+
     return {
+        "status": "healthy" if (NEON_AUTH_JWKS_URL and reachable) else ("configured" if NEON_AUTH_JWKS_URL else "unconfigured"),
         "configured": bool(NEON_AUTH_JWKS_URL),
         "jwks_url": NEON_AUTH_JWKS_URL or "Not configured",
         "neon_auth_url": NEON_AUTH_URL or "Not configured",
         "issuer": NEON_AUTH_ISSUER or "Not enforced",
         "audience": NEON_AUTH_AUDIENCE or "Not enforced",
-        "algorithm": "RS256"
+        "algorithm": "RS256",
+        "algorithms_supported": supported_algorithms,
+        "reachable": reachable,
+        "active_keys_count": active_keys,
+        "key_ids": key_ids
     }
 
 
 def verify_neon_jwks_token(token: str) -> Dict[str, Any]:
     """
-    Verify an asymmetric RS256 token against hosted Neon Auth JWKS keys.
+    Verify an asymmetric token (EdDSA / RS256 / ES256) against hosted Neon Auth JWKS keys.
     Validates key ID (kid), public key signature, expiration (exp), issuer, and audience.
     """
     jwks_client = get_jwks_client()
@@ -74,7 +95,7 @@ def verify_neon_jwks_token(token: str) -> Dict[str, Any]:
             "require": ["exp"]
         }
         decode_kwargs: Dict[str, Any] = {
-            "algorithms": ["RS256"],
+            "algorithms": ["EdDSA", "RS256", "ES256"],
             "options": decode_options,
         }
         if NEON_AUTH_ISSUER:
@@ -313,8 +334,8 @@ def decode_token(token: str, expected_type: Optional[str] = "access") -> Dict[st
         alg = "HS256"
         has_kid = False
 
-    # Route to JWKS verification if RS256 or kid is present
-    if alg == "RS256" or has_kid:
+    # Route to JWKS verification if RS256, EdDSA, ES256 or kid is present
+    if alg in ["RS256", "EdDSA", "ES256"] or has_kid:
         payload = verify_neon_jwks_token(token_str)
         payload["_auth_source"] = "neon_auth_jwks"
         return payload
