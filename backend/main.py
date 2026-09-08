@@ -2,6 +2,13 @@
 Adaptive Zero Trust-AI Framework Backend API
 Production FastAPI Application for Continuous Multi-Factor Authentication in Hybrid Cloud Security
 """
+import sys
+if sys.platform == "win32":
+    import asyncio
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
 
 import os
 import uuid
@@ -1647,3 +1654,11 @@ async def get_compliance_score():
             {"standard": "Privacy-Preserving Federated Aggregation", "compliance": "98%", "status": "COMPLIANT"}
         ]
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8000"))
+    host = os.getenv("HOST", "0.0.0.0")
+    print(f"[*] Starting Zero Trust AI Framework Backend on http://{host}:{port}")
+    uvicorn.run("main:app", host=host, port=port, reload=False)

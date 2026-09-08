@@ -12,10 +12,10 @@ from typing import Optional, List, Dict, Any, Tuple, Union
 from contextlib import asynccontextmanager
 
 import sys
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-# Load environment variables from .env
-load_dotenv()
+# Load environment variables from .env (checks current directory and parent directories)
+load_dotenv(find_dotenv())
 
 if sys.platform == "win32":
     try:
@@ -151,7 +151,13 @@ class DatabaseManager:
         self.is_postgres = IS_POSTGRES
         self._pool_queue: Optional[asyncio.Queue] = None
         self._max_size = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
-        self._conn_url = None
+        if self.is_postgres and DATABASE_URL:
+            if any(h in DATABASE_URL for h in ("neon.tech", "neon.database")) and "sslmode=" not in DATABASE_URL:
+                self._conn_url = DATABASE_URL + ("&sslmode=require" if "?" in DATABASE_URL else "?sslmode=require")
+            else:
+                self._conn_url = DATABASE_URL
+        else:
+            self._conn_url = None
 
     async def _create_pg_connection(self):
         """Create a single healthy psycopg.AsyncConnection"""
