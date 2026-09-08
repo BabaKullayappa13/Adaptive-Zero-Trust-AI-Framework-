@@ -342,9 +342,10 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS captcha_challenges (
                         id SERIAL PRIMARY KEY,
                         challenge_id VARCHAR(100) NOT NULL UNIQUE,
-                        captcha_text VARCHAR(50) NOT NULL,
+                        captcha_text VARCHAR(128) NOT NULL,
                         expires_at TIMESTAMPTZ NOT NULL,
                         solved BOOLEAN DEFAULT FALSE,
+                        attempts INTEGER DEFAULT 0,
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     );
 
@@ -651,6 +652,7 @@ class DatabaseManager:
                         captcha_text TEXT NOT NULL,
                         expires_at TEXT NOT NULL,
                         solved INTEGER DEFAULT 0,
+                        attempts INTEGER DEFAULT 0,
                         created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
                 """)

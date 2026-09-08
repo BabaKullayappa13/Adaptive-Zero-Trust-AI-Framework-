@@ -73,11 +73,8 @@ function VerifyEmailContent() {
     setLocalError('')
     setLocalSuccess('')
     try {
-      const res = await resendEmailVerification(email.trim())
+      await resendEmailVerification(email.trim())
       setLocalSuccess('A fresh verification code has been dispatched to your email.')
-      if (res.verification_code) {
-        setCode(res.verification_code)
-      }
       setCooldown(30)
     } catch (err: any) {
       setLocalError(err.message || 'Failed to resend code.')
@@ -173,7 +170,7 @@ function VerifyEmailContent() {
                   maxLength={6}
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
+                  placeholder="Enter 6-digit code"
                   required
                   className="mt-1 w-full rounded-xl border border-white/10 bg-slate-800/80 px-3.5 py-2.5 text-center text-xl font-mono tracking-widest text-cyan-300 placeholder-slate-600 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
                 />

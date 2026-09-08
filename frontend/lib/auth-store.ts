@@ -59,14 +59,14 @@ interface AuthState {
   login: (email: string, password: string, secretPin?: string, totpCode?: string) => Promise<LoginResult>
   generateCaptcha: () => Promise<{ challenge_id: string; question: string }>
   verifyCaptcha: (challengeId: string, solution: string) => Promise<boolean>
-  sendOtp: (email: string) => Promise<{ demo_otp?: string; challenge_id: string }>
+  sendOtp: (email: string) => Promise<{ challenge_id: string }>
   verifyOtp: (email: string, otpCode: string) => Promise<boolean>
   verifySecurePin: (email: string, secretPin: string) => Promise<boolean>
   loginMfaComplete: (email: string) => Promise<LoginResult>
   verifyPinChallenge: (challengeToken: string, secretPin: string) => Promise<void>
 
   // Recovery & Factor Management
-  forgotSecurePin: (email: string) => Promise<{ demo_recovery_code?: string; message: string }>
+  forgotSecurePin: (email: string) => Promise<{ message: string }>
   resetSecurePin: (email: string, recoveryCode: string, newSecretPin: string, confirmNewSecretPin: string) => Promise<any>
   changeSecurePin: (currentPassword: string, newSecretPin: string, confirmNewSecretPin: string) => Promise<any>
   getMfaFactors: () => Promise<MfaFactorsResponse | null>
@@ -236,7 +236,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim() })
     })
-    const data = await readApiResponse<{ demo_otp?: string; challenge_id: string; detail?: string }>(res)
+    const data = await readApiResponse<{ challenge_id: string; detail?: string }>(res)
     if (!res.ok) throw new Error(data.detail || 'Failed to send OTP')
     return data
   },
@@ -432,7 +432,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim() })
     })
-    const data = await readApiResponse<{ demo_recovery_code?: string; message: string; detail?: string }>(res)
+    const data = await readApiResponse<{ message: string; detail?: string }>(res)
     if (!res.ok) throw new Error(data.detail || 'Failed to request recovery code')
     return data
   },

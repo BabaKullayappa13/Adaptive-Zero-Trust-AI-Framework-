@@ -34,7 +34,6 @@ export default function LoginPage() {
 
   // OTP State
   const [otpCode, setOtpCode] = useState('')
-  const [otpDemo, setOtpDemo] = useState('')
   const [otpCooldown, setOtpCooldown] = useState(0)
 
   // Secure PIN State
@@ -99,10 +98,7 @@ export default function LoginPage() {
       await verifyCaptcha(captchaChallenge.challenge_id, captchaSolution)
       
       // Advance to Step 3: Dispatch OTP
-      const otpRes = await sendOtp(email.trim())
-      if (otpRes.demo_otp) {
-        setOtpDemo(otpRes.demo_otp)
-      }
+      await sendOtp(email.trim())
       setOtpCooldown(45)
       setCurrentStep('OTP')
       setLocalSuccess('CAPTCHA verified. One-Time Password sent to your email.')
@@ -154,8 +150,7 @@ export default function LoginPage() {
     if (otpCooldown > 0) return
     setLocalError('')
     try {
-      const res = await sendOtp(email.trim())
-      if (res.demo_otp) setOtpDemo(res.demo_otp)
+      await sendOtp(email.trim())
       setOtpCooldown(45)
       setLocalSuccess('A fresh OTP has been sent to your email.')
     } catch (err: any) {
@@ -458,19 +453,6 @@ export default function LoginPage() {
                   </p>
                 </div>
 
-                {otpDemo && (
-                  <div className="mb-4 rounded-xl border border-cyan-400/30 bg-cyan-950/30 p-3 text-xs text-cyan-200 flex items-center justify-between">
-                    <span>Demo Verification Code: <strong className="font-mono text-cyan-300 text-sm">{otpDemo}</strong></span>
-                    <button 
-                      type="button" 
-                      onClick={() => setOtpCode(otpDemo)}
-                      className="text-[11px] underline text-cyan-300 hover:text-cyan-200"
-                    >
-                      Auto-Fill
-                    </button>
-                  </div>
-                )}
-
                 {localError && (
                   <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
                     <ShieldAlert className="size-4 shrink-0 text-rose-400" />
@@ -488,7 +470,7 @@ export default function LoginPage() {
                       maxLength={6}
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456"
+                      placeholder="Enter 6-digit code"
                       required
                       className="mt-1 w-full rounded-xl border border-white/10 bg-slate-800/80 px-3.5 py-2.5 text-center text-xl font-mono tracking-widest text-cyan-300 placeholder-slate-600 focus:border-cyan-400 focus:outline-none"
                     />

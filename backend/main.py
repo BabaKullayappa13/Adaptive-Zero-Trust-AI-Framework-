@@ -304,8 +304,7 @@ async def register_user(req: UserRegisterRequest, conn: DatabaseConnection = Dep
         "user_id": user_id,
         "email": email_clean,
         "email_verified": False,
-        "secure_pin_configured": pin_configured,
-        "verification_code": v_code
+        "secure_pin_configured": pin_configured
     }
 
 
@@ -395,8 +394,7 @@ async def resend_email_verification(req: ResendEmailVerificationRequest, conn: D
     return {
         "status": "SUCCESS",
         "message": f"Verification code sent to {email_clean}.",
-        "email": email_clean,
-        "verification_code": v_code
+        "email": email_clean
     }
 
 
@@ -504,20 +502,36 @@ async def generate_captcha_endpoint(conn: DatabaseConnection = Depends(get_db)):
 
 @app.post("/api/auth/captcha/verify", tags=["Authentication"])
 async def verify_captcha_endpoint(req: CaptchaVerifyRequest, conn: DatabaseConnection = Depends(get_db)):
-    """Validate CAPTCHA solution against stored challenge"""
+    """Validate CAPTCHA solution against stored challenge with expiration, replay, and attempt protections"""
     res = await conn.execute(
-        "SELECT captcha_text, expires_at, solved FROM captcha_challenges WHERE challenge_id = %s",
+        "SELECT captcha_text, expires_at, solved, attempts FROM captcha_challenges WHERE challenge_id = %s",
         (req.challenge_id,)
     )
     row = await res.fetchone()
     if not row:
         raise HTTPException(status_code=400, detail="Invalid or expired CAPTCHA challenge. Please refresh.")
     
-    answer_hash, expires_at, solved = row
+    answer_hash, expires_at, solved, attempts = row
+    attempts = attempts or 0
+
+    if solved:
+        raise HTTPException(status_code=400, detail="CAPTCHA challenge has already been used. Please request a new challenge.")
+    
+    # Expiration check
+    from datetime import timezone
+    now = datetime.now(timezone.utc) if (hasattr(expires_at, "tzinfo") and expires_at.tzinfo is not None) else datetime.utcnow()
+    if expires_at < now:
+        raise HTTPException(status_code=400, detail="CAPTCHA challenge has expired. Please request a new challenge.")
+
+    if attempts >= 5:
+        raise HTTPException(status_code=429, detail="Too many invalid CAPTCHA attempts. Please request a new challenge.")
+
     if not verify_captcha_solution(req.solution, answer_hash):
+        await conn.execute("UPDATE captcha_challenges SET attempts = attempts + 1 WHERE challenge_id = %s", (req.challenge_id,))
+        await conn.commit()
         raise HTTPException(status_code=400, detail="Incorrect CAPTCHA answer. Please try again.")
 
-    await conn.execute("UPDATE captcha_challenges SET solved = TRUE WHERE challenge_id = %s", (req.challenge_id,))
+    await conn.execute("UPDATE captcha_challenges SET solved = TRUE, attempts = attempts + 1 WHERE challenge_id = %s", (req.challenge_id,))
     await conn.commit()
 
     return {"status": "SUCCESS", "verified": True, "message": "CAPTCHA verified successfully."}
@@ -554,8 +568,7 @@ async def send_otp_endpoint(req: OtpSendRequest, conn: DatabaseConnection = Depe
         "status": "SUCCESS",
         "message": f"Verification code sent to {email_clean}.",
         "challenge_id": challenge_id,
-        "expires_in_seconds": 300,
-        "demo_otp": otp_code  # Displayed in UI demo mode for seamless interaction
+        "expires_in_seconds": 300
     }
 
 
@@ -954,8 +967,7 @@ async def forgot_secure_pin_endpoint(req: ForgotSecurePinRequest, conn: Database
     return {
         "status": "SUCCESS",
         "message": f"Security recovery code sent to {email_clean}.",
-        "email": email_clean,
-        "demo_recovery_code": recovery_code
+        "email": email_clean
     }
 
 

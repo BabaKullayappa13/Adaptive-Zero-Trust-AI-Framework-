@@ -140,7 +140,7 @@ function ResetSecurePinContent() {
                   maxLength={6}
                   value={recoveryCode}
                   onChange={(e) => setRecoveryCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
+                  placeholder="Enter 6-digit code"
                   required
                   className="mt-1 w-full rounded-xl border border-white/10 bg-slate-800/80 px-3.5 py-2.5 text-center text-lg font-mono tracking-widest text-cyan-300 placeholder-slate-600 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
                 />
