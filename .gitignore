@@ -2,6 +2,7 @@
 node_modules/
 frontend/node_modules/
 backend/venv/
+backend/.venv/
 .venv/
 venv/
 env/
@@ -40,6 +41,11 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
 
 # Large model binaries / checkpoints (if regenerated on startup)
 models/*.joblib

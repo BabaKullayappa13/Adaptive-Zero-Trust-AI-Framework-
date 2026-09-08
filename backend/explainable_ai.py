@@ -152,8 +152,9 @@ class ExplainableAIService:
             "risk_score": risk_score,
             "trust_score": trust_score,
             "feature_attribution": feature_contributions,
-            "model_architecture": "IsolationForest (n_estimators=120, max_samples=auto)",
-            "shap_kernel": "TreeSHAP-Approximation",
+            "model_architecture": "Gradient Boosting (CICIDS2017) + Behavioral Isolation Forest",
+            "feature_selection": "Recursive Feature Elimination (RFE, 15 features) + PCA (10 components)",
+            "shap_kernel": "TreeSHAP Attribution (Lundberg et al.)",
             "evaluated_at": datetime.utcnow().isoformat(),
             "contributing_features_count": len(feature_contributions),
             "dominant_risk_factor": top_factors[0]["feature"] if top_factors else "none"

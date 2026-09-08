@@ -19,7 +19,7 @@ class ZeroTrustPolicyEngine:
             res = await conn.execute(
                 """SELECT id, name, description, policy_type, priority, enabled, created_at 
                    FROM trust_policies 
-                   WHERE enabled = 1 OR enabled = TRUE
+                   WHERE enabled = TRUE
                    ORDER BY priority ASC, id ASC"""
             )
             policies = await res.fetchall()

@@ -12,6 +12,10 @@ from typing import Optional, List, Dict, Any, Tuple, Union
 from contextlib import asynccontextmanager
 
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 if sys.platform == "win32":
     try:
@@ -227,6 +231,32 @@ class DatabaseManager:
             async with aiosqlite.connect(SQLITE_DB_PATH) as raw_conn:
                 raw_conn.row_factory = aiosqlite.Row
                 yield DatabaseConnection(raw_conn, is_postgres=False)
+
+    async def check_health(self) -> Dict[str, Any]:
+        """Safe database health check without leaking credentials"""
+        raw_url = os.getenv("DATABASE_URL")
+        if not raw_url or not raw_url.strip():
+            return {
+                "status": "unhealthy",
+                "database": "DATABASE_URL missing",
+                "connected": False
+            }
+        try:
+            async with self.get_connection() as conn:
+                cur = await conn.execute("SELECT 1;")
+                await cur.fetchone()
+            return {
+                "status": "healthy",
+                "database": "connected",
+                "engine": "postgresql" if self.is_postgres else "sqlite",
+                "connected": True
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "database": "Database connection failed",
+                "connected": False
+            }
 
     async def _ensure_tables(self):
         """Create all required tables, indexes, and initial records"""
@@ -492,6 +522,9 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS federated_models (
                         id SERIAL PRIMARY KEY,
                         round_id INTEGER REFERENCES federated_rounds(id) ON DELETE CASCADE,
+                        round_number INTEGER,
+                        model_version VARCHAR(100),
+                        participating_clients INTEGER,
                         version VARCHAR(100) NOT NULL,
                         global_accuracy FLOAT NOT NULL,
                         global_loss FLOAT NOT NULL,
@@ -555,9 +588,64 @@ class DatabaseManager:
                         name TEXT,
                         mfa_enabled INTEGER NOT NULL DEFAULT 0,
                         mfa_secret TEXT,
+                        secure_pin_configured INTEGER DEFAULT 0,
+                        pin_created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        pin_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        email_verified INTEGER DEFAULT 1,
+                        email_verified_at TEXT,
                         last_login TEXT,
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT,
+                        email TEXT NOT NULL,
+                        token_hash TEXT NOT NULL,
+                        verification_code TEXT,
+                        expires_at TEXT NOT NULL,
+                        verified_at TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS pin_reset_tokens (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT,
+                        email TEXT NOT NULL,
+                        token_hash TEXT NOT NULL,
+                        recovery_code TEXT,
+                        expires_at TEXT NOT NULL,
+                        used_at TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS otp_challenges (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT,
+                        email TEXT NOT NULL,
+                        challenge_id TEXT NOT NULL UNIQUE,
+                        otp_code TEXT NOT NULL,
+                        attempts INTEGER DEFAULT 0,
+                        expires_at TEXT NOT NULL,
+                        verified_at TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS captcha_challenges (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        challenge_id TEXT NOT NULL UNIQUE,
+                        captcha_text TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        solved INTEGER DEFAULT 0,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
                 await conn.execute("""
@@ -762,6 +850,9 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS federated_models (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         round_id INTEGER,
+                        round_number INTEGER,
+                        model_version TEXT,
+                        participating_clients INTEGER,
                         version TEXT NOT NULL,
                         global_accuracy REAL NOT NULL,
                         global_loss REAL NOT NULL,
@@ -841,6 +932,9 @@ class DatabaseManager:
                     "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(100)",
 
                     "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS round_id INTEGER",
+                    "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS round_number INTEGER",
+                    "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS model_version VARCHAR(100)",
+                    "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS participating_clients INTEGER",
                     "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS version VARCHAR(100)",
                     "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS global_accuracy FLOAT",
                     "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS global_loss FLOAT",

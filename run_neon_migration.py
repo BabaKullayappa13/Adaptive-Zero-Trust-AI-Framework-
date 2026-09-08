@@ -1,7 +1,13 @@
-import psycopg
+import os
 import sys
+from dotenv import load_dotenv
 
-url = 'postgresql://neondb_owner:npg_6pkZtUuvFwy4@ep-ancient-tree-az419aje.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'
+load_dotenv()
+
+url = os.getenv("DATABASE_URL")
+if not url:
+    print("[Error] DATABASE_URL environment variable is not set. Please check your .env file.")
+    sys.exit(1)
 
 stmts = [
     # Clean sequences and defaults for integer PKs

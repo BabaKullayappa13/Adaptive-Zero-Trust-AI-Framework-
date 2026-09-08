@@ -163,6 +163,12 @@ class ContinuousAuthenticationOrchestrator:
                 ])
                 detector_res = self.anomaly_detector.predict_anomaly(feature_vector)
                 ai_anomaly_score = float(detector_res.get("anomaly_score", 0.0))
+
+                # Check network flow threat if flow features are supplied
+                if hasattr(self.anomaly_detector, "predict_network_threat") and "flow_features" in telemetry:
+                    threat_res = self.anomaly_detector.predict_network_threat(np.array(telemetry["flow_features"]))
+                    net_risk = float(threat_res.get("risk_score", 0.0))
+                    ai_anomaly_score = max(ai_anomaly_score, net_risk)
             except Exception as e:
                 print(f"[ContinuousAuth] ML prediction error: {e}")
 

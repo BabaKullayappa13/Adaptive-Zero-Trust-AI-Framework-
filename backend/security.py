@@ -1,8 +1,3 @@
-"""
-Security and Cryptography Utilities for Adaptive Zero Trust AI Framework
-Provides bcrypt password & PIN hashing, JWT issuance/validation, TOTP MFA, and security tokens.
-"""
-
 import os
 import secrets
 import hashlib
@@ -11,15 +6,96 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import bcrypt
 import jwt
+from jwt import PyJWKClient, PyJWKClientError
 import pyotp
+from dotenv import load_dotenv
 from fastapi import HTTPException, Security, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY", "adaptive-zero-trust-ai-framework-secure-signing-key-2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 MFA_ISSUER = os.getenv("MFA_ISSUER", "Adaptive Zero Trust AI")
+
+# Neon Auth & JWKS Configuration
+NEON_AUTH_URL = os.getenv("NEON_AUTH_URL") or os.getenv("NEON_AUTH_BASE_URL") or os.getenv("NEXT_PUBLIC_NEON_AUTH_URL", "")
+NEON_AUTH_JWKS_URL = os.getenv("NEON_AUTH_JWKS_URL", "")
+if not NEON_AUTH_JWKS_URL and NEON_AUTH_URL:
+    NEON_AUTH_JWKS_URL = f"{NEON_AUTH_URL.rstrip('/')}/.well-known/jwks.json"
+NEON_AUTH_ISSUER = os.getenv("NEON_AUTH_ISSUER")
+NEON_AUTH_AUDIENCE = os.getenv("NEON_AUTH_AUDIENCE")
+
+_jwks_clients: Dict[str, PyJWKClient] = {}
+
+
+def get_jwks_client(jwks_url: Optional[str] = None) -> Optional[PyJWKClient]:
+    """Get or initialize cached PyJWKClient with key rotation support"""
+    target_url = jwks_url or NEON_AUTH_JWKS_URL
+    if not target_url:
+        return None
+    if target_url not in _jwks_clients:
+        try:
+            _jwks_clients[target_url] = PyJWKClient(target_url, cache_jwk_set=True, lifespan=3600)
+        except Exception as e:
+            print(f"[Security] Failed to initialize PyJWKClient for {target_url}: {e}")
+            return None
+    return _jwks_clients.get(target_url)
+
+
+def get_jwks_status() -> Dict[str, Any]:
+    """Diagnostic check for Neon Auth and JWKS configuration"""
+    return {
+        "configured": bool(NEON_AUTH_JWKS_URL),
+        "jwks_url": NEON_AUTH_JWKS_URL or "Not configured",
+        "neon_auth_url": NEON_AUTH_URL or "Not configured",
+        "issuer": NEON_AUTH_ISSUER or "Not enforced",
+        "audience": NEON_AUTH_AUDIENCE or "Not enforced",
+        "algorithm": "RS256"
+    }
+
+
+def verify_neon_jwks_token(token: str) -> Dict[str, Any]:
+    """
+    Verify an asymmetric RS256 token against hosted Neon Auth JWKS keys.
+    Validates key ID (kid), public key signature, expiration (exp), issuer, and audience.
+    """
+    jwks_client = get_jwks_client()
+    if not jwks_client:
+        raise HTTPException(status_code=503, detail="Neon Auth JWKS endpoint is not configured")
+
+    try:
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        decode_options = {
+            "verify_signature": True,
+            "verify_exp": True,
+            "require": ["exp"]
+        }
+        decode_kwargs: Dict[str, Any] = {
+            "algorithms": ["RS256"],
+            "options": decode_options,
+        }
+        if NEON_AUTH_ISSUER:
+            decode_kwargs["issuer"] = NEON_AUTH_ISSUER
+        if NEON_AUTH_AUDIENCE:
+            decode_kwargs["audience"] = NEON_AUTH_AUDIENCE
+
+        payload = jwt.decode(token, signing_key.key, **decode_kwargs)
+        if "sub" not in payload and "id" in payload:
+            payload["sub"] = payload["id"]
+        if "type" not in payload:
+            payload["type"] = "access"
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Neon Auth token has expired")
+    except PyJWKClientError as e:
+        raise HTTPException(status_code=401, detail=f"JWKS key resolution failed: {str(e)}")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Neon Auth token: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -219,11 +295,36 @@ def create_challenge_token(
 
 
 def decode_token(token: str, expected_type: Optional[str] = "access") -> Dict[str, Any]:
-    """Decode and validate a signed JWT token"""
+    """
+    Decode and validate a signed JWT token.
+    Automatically detects asymmetric RS256 (Neon Auth JWKS) vs symmetric HS256 tokens.
+    """
+    if not token or not isinstance(token, str):
+        raise HTTPException(status_code=401, detail="Invalid token format")
+
+    token_str = token.strip()
+    
+    # Inspect unverified header to determine signing algorithm and kid
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        unverified_header = jwt.get_unverified_header(token_str)
+        alg = unverified_header.get("alg", "HS256")
+        has_kid = bool(unverified_header.get("kid"))
+    except Exception:
+        alg = "HS256"
+        has_kid = False
+
+    # Route to JWKS verification if RS256 or kid is present
+    if alg == "RS256" or has_kid:
+        payload = verify_neon_jwks_token(token_str)
+        payload["_auth_source"] = "neon_auth_jwks"
+        return payload
+
+    # Symmetric HS256 token verification
+    try:
+        payload = jwt.decode(token_str, SECRET_KEY, algorithms=[ALGORITHM])
         if expected_type and payload.get("type") != expected_type:
             raise HTTPException(status_code=401, detail=f"Expected token of type '{expected_type}'")
+        payload["_auth_source"] = "adaptive_zero_trust"
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
@@ -235,7 +336,7 @@ def verify_token(token: str, expected_type: str = "access") -> Optional[str]:
     """Verify token and return user_id if valid"""
     try:
         payload = decode_token(token, expected_type=expected_type)
-        return payload.get("sub")
+        return payload.get("sub") or payload.get("id")
     except Exception:
         return None
 
@@ -266,21 +367,22 @@ def verify_totp(secret: str, code: str) -> bool:
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme)
 ) -> Dict[str, Any]:
-    """FastAPI dependency to authenticate requests with a Bearer JWT"""
+    """FastAPI dependency to authenticate requests with a Bearer JWT (Neon Auth JWKS or internal)"""
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Authentication credentials required")
     
     token = credentials.credentials
     payload = decode_token(token, expected_type="access")
-    user_id = payload.get("sub")
+    user_id = payload.get("sub") or payload.get("id") or payload.get("user_id")
     if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
+        raise HTTPException(status_code=401, detail="Invalid token payload: missing user identifier")
     
     return {
-        "id": user_id,
+        "id": str(user_id),
         "email": payload.get("email", ""),
         "role": payload.get("role", "operator"),
-        "session_id": payload.get("sid")
+        "session_id": payload.get("sid") or payload.get("session_id"),
+        "auth_source": payload.get("_auth_source", "unknown")
     }
 
 

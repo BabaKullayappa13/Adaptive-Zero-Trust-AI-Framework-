@@ -1,0 +1,146 @@
+{
+  "evaluation_timestamp": "2026-09-08T13:12:24.131038+00:00",
+  "dataset": "CICIDS2017 (Canadian Institute for Cybersecurity)",
+  "test_sample_size": 900,
+  "best_model": "Gradient Boosting",
+  "model_benchmarks": {
+    "Gradient Boosting": {
+      "model_name": "Gradient Boosting (Test)",
+      "accuracy": 100.0,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "roc_auc": 1.0,
+      "false_positive_rate": 0.0,
+      "false_negative_rate": 0.0,
+      "latency_ms": 0.003,
+      "confusion_matrix": {
+        "tp": 360,
+        "tn": 540,
+        "fp": 0,
+        "fn": 0
+      }
+    },
+    "Random Forest": {
+      "model_name": "Random Forest (Test)",
+      "accuracy": 100.0,
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "roc_auc": 1.0,
+      "false_positive_rate": 0.0,
+      "false_negative_rate": 0.0,
+      "latency_ms": 0.059,
+      "confusion_matrix": {
+        "tp": 360,
+        "tn": 540,
+        "fp": 0,
+        "fn": 0
+      }
+    },
+    "Support Vector Machine": {
+      "model_name": "SVM (Test)",
+      "accuracy": 99.67,
+      "precision": 99.45,
+      "recall": 99.72,
+      "f1_score": 99.58,
+      "roc_auc": 0.9968,
+      "false_positive_rate": 0.37,
+      "false_negative_rate": 0.28,
+      "latency_ms": 0.0,
+      "confusion_matrix": {
+        "tp": 359,
+        "tn": 538,
+        "fp": 2,
+        "fn": 1
+      }
+    }
+  },
+  "best_model_metrics": {
+    "model_name": "Gradient Boosting (Test)",
+    "accuracy": 100.0,
+    "precision": 100.0,
+    "recall": 100.0,
+    "f1_score": 100.0,
+    "roc_auc": 1.0,
+    "false_positive_rate": 0.0,
+    "false_negative_rate": 0.0,
+    "latency_ms": 0.003,
+    "confusion_matrix": {
+      "tp": 360,
+      "tn": 540,
+      "fp": 0,
+      "fn": 0
+    }
+  },
+  "feature_importances": {
+    "Total Fwd Packets": 0.0,
+    "Total Length of Fwd Packets": 0.0003,
+    "Fwd Packet Length Min": 0.0074,
+    "Fwd Packet Length Mean": 0.0002,
+    "Bwd Packet Length Max": 0.0,
+    "Bwd Packet Length Min": 0.0009,
+    "Bwd Packet Length Mean": 0.0019,
+    "Flow IAT Min": 0.7963,
+    "Fwd IAT Min": 0.164,
+    "Bwd IAT Min": 0.0276,
+    "Avg Fwd Segment Size": 0.0001,
+    "Avg Bwd Segment Size": 0.001,
+    "Subflow Fwd Packets": 0.0,
+    "Subflow Fwd Bytes": 0.0003,
+    "act_data_pkt_fwd": 0.0
+  },
+  "base_paper_comparison": {
+    "base_paper_title": "AI-Enabled Multi-Factor Authentication Systems for Private and Public Cloud Security",
+    "metrics_comparison": [
+      {
+        "metric": "Authentication Accuracy",
+        "base_paper": 92.4,
+        "ieee_baseline": 92.0,
+        "proposed_gradient_boosting": 100.0,
+        "unit": "%",
+        "improvement": 7.6
+      },
+      {
+        "metric": "Unauthorized Access Detection (Recall)",
+        "base_paper": 84.1,
+        "ieee_baseline": 85.0,
+        "proposed_gradient_boosting": 100.0,
+        "unit": "%",
+        "improvement": 15.9
+      },
+      {
+        "metric": "False Positive Rate (FPR)",
+        "base_paper": 6.8,
+        "ieee_baseline": 5.0,
+        "proposed_gradient_boosting": 0.0,
+        "unit": "%",
+        "reduction": 6.8
+      },
+      {
+        "metric": "F1-Score",
+        "base_paper": 88.2,
+        "ieee_baseline": 88.0,
+        "proposed_gradient_boosting": 100.0,
+        "unit": "%",
+        "improvement": 11.8
+      },
+      {
+        "metric": "ROC-AUC",
+        "base_paper": 0.915,
+        "ieee_baseline": 0.91,
+        "proposed_gradient_boosting": 1.0,
+        "unit": "score",
+        "improvement": 0.085
+      },
+      {
+        "metric": "Inference Latency",
+        "base_paper": 85.0,
+        "ieee_baseline": 150.0,
+        "proposed_gradient_boosting": 0.003,
+        "unit": "ms",
+        "speedup_percent": 100.0
+      }
+    ]
+  }
+}
