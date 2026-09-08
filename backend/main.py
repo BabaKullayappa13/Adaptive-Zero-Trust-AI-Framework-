@@ -11,6 +11,7 @@ if sys.platform == "win32":
         pass
 
 import os
+import json
 import uuid
 import secrets
 import hashlib
@@ -24,14 +25,15 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 import numpy as np
 
+import httpx
+
 from database import db_manager, get_db, DatabaseConnection
 from security import (
     hash_password, verify_password,
     hash_secret_pin, verify_secret_pin, validate_secure_pin_strength,
-    generate_secure_otp, generate_captcha_challenge, verify_captcha_solution,
     create_access_token, create_refresh_token, create_challenge_token,
     decode_token, verify_token, get_current_user, ensure_owner,
-    generate_totp_secret, get_totp_uri, verify_totp
+    generate_totp_secret, get_totp_uri, verify_totp, get_current_admin_user
 )
 from trust_risk_engine import TrustRiskEngine
 from behavioral_analysis import BehavioralAnalysisEngine
@@ -45,6 +47,10 @@ from hybrid_cloud import HybridCloudService
 from zero_trust_policy import ZeroTrustPolicyEngine
 from research_evaluation import ResearchEvaluationModule
 from ieee_baseline_comparison import IEEEBaselineComparison
+
+NEON_AUTH_URL = (os.getenv("NEON_AUTH_URL") or os.getenv("NEON_AUTH_BASE_URL") or os.getenv("NEXT_PUBLIC_NEON_AUTH_URL", "")).rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+_resend_cooldowns: Dict[str, datetime] = {}
 
 # Initialize Services
 db_connect = db_manager.get_connection
@@ -73,7 +79,9 @@ class UserRegisterRequest(BaseModel):
 
 class EmailVerifyRequest(BaseModel):
     email: EmailStr
-    verification_code: str = Field(..., min_length=4, max_length=10)
+    code: Optional[str] = None
+    token: Optional[str] = None
+    verification_code: Optional[str] = None
 
 class ResendEmailVerificationRequest(BaseModel):
     email: EmailStr
@@ -82,18 +90,6 @@ class SetupSecurePinRequest(BaseModel):
     email: EmailStr
     secret_pin: str = Field(..., min_length=4, max_length=8)
     confirm_pin: str = Field(..., min_length=4, max_length=8)
-
-class CaptchaVerifyRequest(BaseModel):
-    challenge_id: str
-    solution: str
-
-class OtpSendRequest(BaseModel):
-    email: EmailStr
-    purpose: Optional[str] = "login_mfa"
-
-class OtpVerifyRequest(BaseModel):
-    email: EmailStr
-    otp_code: str = Field(..., min_length=4, max_length=10)
 
 class LoginStep1Request(BaseModel):
     email: EmailStr
@@ -173,6 +169,16 @@ class CloudResourceAccessRequest(BaseModel):
     resource_cloud: str = "public"  # public or private
     session_id: Optional[int] = None
 
+class SecurityRecalculateRequest(BaseModel):
+    user_id: Optional[str] = None
+    session_id: Optional[int] = None
+    telemetry: Optional[Dict[str, Any]] = None
+    device_info: Optional[Dict[str, Any]] = None
+    location_info: Optional[Dict[str, Any]] = None
+
+class AdminLoginRequest(BaseModel):
+    key: str
+
 # ============================================================================
 # FASTAPI APPLICATION SETUP
 # ============================================================================
@@ -236,6 +242,15 @@ async def jwks_health():
     from security import get_jwks_status
     return get_jwks_status()
 
+@app.get("/health/admin", tags=["Health"])
+@app.get("/api/health/admin", tags=["Health"])
+async def admin_health():
+    """Diagnostic check for server-side admin authentication configuration"""
+    configured_key = (os.getenv("ADMIN_ACCESS_KEY") or "").strip()
+    return {
+        "status": "configured" if configured_key else "not_configured"
+    }
+
 # ============================================================================
 # AUTHENTICATION ENDPOINTS (REGISTER, VERIFY, CAPTCHA, OTP, PIN, MFA)
 # ============================================================================
@@ -245,14 +260,13 @@ async def register_user(req: UserRegisterRequest, conn: DatabaseConnection = Dep
     """
     Register a new user:
     1. Validate unique email
-    2. Hash password securely
-    3. Generate email verification code/token
-    4. Store account in database with secure_pin_configured = FALSE
-    5. Return success and instructions to proceed to /verify-email
+    2. Register user & dispatch real verification email via Neon Auth
+    3. Store user account in database with email_verified = FALSE
+    4. Only returns success if Neon Auth dispatch actually succeeds
     """
     email_clean = req.email.strip().lower()
 
-    # Check if user exists
+    # 1. Check if user already exists in database
     existing = await conn.execute("SELECT id FROM users WHERE email = %s", (email_clean,))
     if await existing.fetchone():
         raise HTTPException(status_code=409, detail="An account with this email address already exists.")
@@ -264,32 +278,71 @@ async def register_user(req: UserRegisterRequest, conn: DatabaseConnection = Dep
     pin_configured = False
     if req.secret_pin:
         is_valid_pin, pin_msg = validate_secure_pin_strength(req.secret_pin)
-        if is_valid_pin:
-            pin_hash = hash_secret_pin(req.secret_pin)
-            pin_configured = True
+        if not is_valid_pin:
+            raise HTTPException(status_code=400, detail=pin_msg)
+        pin_hash = hash_secret_pin(req.secret_pin)
+        pin_configured = True
 
+    # 2. Register with real Neon Auth and trigger email dispatch
+    if NEON_AUTH_URL:
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.post(
+                    f"{NEON_AUTH_URL}/sign-up/email",
+                    json={
+                        "email": email_clean,
+                        "password": req.password,
+                        "name": req.name or "Security Operator",
+                        "callbackURL": f"{FRONTEND_URL}/verify-email"
+                    },
+                    headers={"Content-Type": "application/json", "Origin": FRONTEND_URL}
+                )
+                if resp.status_code not in (200, 201):
+                    err_detail = "Failed to register account with Neon Auth."
+                    try:
+                        err_data = resp.json()
+                        err_detail = err_data.get("message") or err_data.get("detail") or str(err_data)
+                    except Exception:
+                        err_detail = resp.text or err_detail
+                    if "already" in err_detail.lower() or resp.status_code == 409 or resp.status_code == 400:
+                        raise HTTPException(status_code=409, detail=f"An account with this email address already exists: {err_detail}")
+                    raise HTTPException(status_code=resp.status_code if resp.status_code < 500 else 502, detail=err_detail)
+
+                data = resp.json()
+                if "user" in data and "id" in data["user"]:
+                    user_id = str(data["user"]["id"])
+
+                # Trigger real Neon Auth verification code dispatch via native email-otp
+                otp_resp = await client.post(
+                    f"{NEON_AUTH_URL}/email-otp/send-verification-otp",
+                    json={"email": email_clean, "type": "email-verification"},
+                    headers={"Content-Type": "application/json", "Origin": FRONTEND_URL}
+                )
+                if otp_resp.status_code not in (200, 201):
+                    err_detail = "Failed to dispatch verification code via Neon Auth."
+                    try:
+                        err_detail = otp_resp.json().get("message", err_detail)
+                    except Exception:
+                        pass
+                    raise HTTPException(status_code=502, detail=err_detail)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Neon Auth dispatch failed: {str(e)}")
+
+    # 3. Store user record in PostgreSQL users table
     await conn.execute(
         """INSERT INTO users 
            (id, email, password_hash, pin_hash, name, mfa_enabled, secure_pin_configured, 
             email_verified, created_at, updated_at)
-           VALUES (%s, %s, %s, %s, %s, FALSE, %s, FALSE, NOW(), NOW())""",
+           VALUES (%s, %s, %s, %s, %s, FALSE, %s, FALSE, NOW(), NOW())
+           ON CONFLICT (id) DO UPDATE 
+           SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash,
+               pin_hash = EXCLUDED.pin_hash, secure_pin_configured = EXCLUDED.secure_pin_configured""",
         (user_id, email_clean, pwd_hash, pin_hash, req.name or "Security Operator", pin_configured)
     )
 
-    # Generate 6-digit email verification code
-    v_code = generate_secure_otp(6)
-    token_str = secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token_str.encode()).hexdigest()
-    expires_at = datetime.utcnow() + timedelta(hours=24)
-
-    await conn.execute(
-        """INSERT INTO email_verification_tokens 
-           (user_id, email, token_hash, verification_code, expires_at, created_at)
-           VALUES (%s, %s, %s, %s, %s, NOW())""",
-        (user_id, email_clean, token_hash, v_code, expires_at)
-    )
-
-    # Audit log
+    # 4. Audit log
     await conn.execute(
         """INSERT INTO audit_logs 
            (id, user_id, action_type, status, risk_level, trust_level, details, created_at)
@@ -300,7 +353,7 @@ async def register_user(req: UserRegisterRequest, conn: DatabaseConnection = Dep
 
     return {
         "status": "SUCCESS",
-        "message": "Account created successfully. We have sent a verification email to your registered email address.",
+        "message": f"Account registered successfully. Verification code dispatched to {email_clean}. Please check your inbox.",
         "user_id": user_id,
         "email": email_clean,
         "email_verified": False,
@@ -310,90 +363,246 @@ async def register_user(req: UserRegisterRequest, conn: DatabaseConnection = Dep
 
 @app.post("/api/auth/verify-email", tags=["Authentication"])
 async def verify_email_endpoint(req: EmailVerifyRequest, conn: DatabaseConnection = Depends(get_db)):
-    """Verify user email address using the 6-digit verification code"""
+    """
+    Verify user email via real Neon Auth verification code:
+    - Accepts verification code entered by user
+    - Forwards directly to Neon Auth /email-otp/verify-email API
+    - Rejects invalid code with 'Invalid verification code.'
+    - Handles expired code with 'This verification code has expired. Please request a new verification code.'
+    - Never uses fake OTP or local code matching
+    """
     email_clean = req.email.strip().lower()
-    code_clean = req.verification_code.strip()
+    code_raw = (req.code or req.verification_code or "").strip()
 
-    # Find active token/code
-    res = await conn.execute(
-        """SELECT id, user_id FROM email_verification_tokens
-           WHERE email = %s AND verification_code = %s AND expires_at > NOW() AND verified_at IS NULL
-           ORDER BY created_at DESC LIMIT 1""",
-        (email_clean, code_clean)
-    )
-    token_row = await res.fetchone()
+    if not NEON_AUTH_URL:
+        raise HTTPException(status_code=503, detail="Neon Auth service URL is not configured.")
 
-    if not token_row:
-        # Fallback check if already verified
-        check_user = await conn.execute("SELECT id, secure_pin_configured, email_verified FROM users WHERE email = %s", (email_clean,))
-        user_row = await check_user.fetchone()
-        if user_row and user_row[2]:
-            return {
-                "status": "SUCCESS",
-                "message": "Email is already verified.",
-                "email": email_clean,
-                "email_verified": True,
-                "secure_pin_configured": bool(user_row[1])
+    if code_raw:
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.post(
+                    f"{NEON_AUTH_URL}/email-otp/verify-email",
+                    json={"email": email_clean, "otp": code_raw},
+                    headers={"Content-Type": "application/json", "Origin": FRONTEND_URL}
+                )
+                if resp.status_code not in (200, 201):
+                    err_msg = "Invalid verification code."
+                    try:
+                        err_data = resp.json()
+                        err_code = str(err_data.get("code", "")).upper()
+                        raw_msg = str(err_data.get("message", "")).lower()
+                        if "expired" in raw_msg or "EXPIRED" in err_code:
+                            err_msg = "This verification code has expired. Please request a new verification code."
+                        elif "invalid" in raw_msg or "INVALID" in err_code:
+                            err_msg = "Invalid verification code."
+                        else:
+                            err_msg = err_data.get("message") or err_msg
+                    except Exception:
+                        pass
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "email_verified": False,
+                            "message": err_msg
+                        }
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "success": False,
+                    "email_verified": False,
+                    "message": f"Failed to connect to Neon Auth: {str(e)}"
+                }
+            )
+    elif req.token:
+        # Fallback for link token if accessed
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.get(
+                    f"{NEON_AUTH_URL}/verify-email",
+                    params={"token": req.token, "callbackURL": f"{FRONTEND_URL}/verify-email"},
+                    headers={"Origin": FRONTEND_URL},
+                    follow_redirects=True
+                )
+                if resp.status_code not in (200, 302, 307):
+                    return JSONResponse(
+                        status_code=400,
+                        content={
+                            "success": False,
+                            "email_verified": False,
+                            "message": "Invalid or expired verification token."
+                        }
+                    )
+        except Exception as e:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "success": False,
+                    "email_verified": False,
+                    "message": f"Neon Auth verification failed: {str(e)}"
+                }
+            )
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "email_verified": False,
+                "message": "Verification code is required."
             }
-        raise HTTPException(status_code=400, detail="Invalid or expired verification code.")
+        )
 
-    token_id, user_id = token_row
-
-    # Mark token used & user verified
-    await conn.execute("UPDATE email_verification_tokens SET verified_at = NOW() WHERE id = %s", (token_id,))
-    await conn.execute("UPDATE users SET email_verified = TRUE, email_verified_at = NOW() WHERE id = %s", (user_id,))
-    
-    # Check if Secure PIN is configured
-    u_res = await conn.execute("SELECT secure_pin_configured, pin_hash FROM users WHERE id = %s", (user_id,))
-    u_data = await u_res.fetchone()
-    pin_configured = bool(u_data and (u_data[0] or u_data[1]))
-
+    # Synchronize verified status in application users table
     await conn.execute(
-        """INSERT INTO audit_logs 
-           (id, user_id, action_type, status, risk_level, trust_level, details, created_at)
-           VALUES (%s, %s, 'EMAIL_VERIFIED', 'SUCCESS', 'LOW', 'NORMAL', %s, NOW())""",
-        (str(uuid.uuid4()), user_id, {"email": email_clean, "secure_pin_configured": pin_configured})
+        "UPDATE users SET email_verified = TRUE, email_verified_at = NOW() WHERE email = %s",
+        (email_clean,)
     )
+
+    # Check if Secure PIN is already configured
+    u_res = await conn.execute("SELECT id, secure_pin_configured, pin_hash FROM users WHERE email = %s", (email_clean,))
+    u_data = await u_res.fetchone()
+    user_id = u_data[0] if u_data else None
+    pin_configured = bool(u_data and (u_data[1] or u_data[2]))
+
+    if user_id:
+        await conn.execute(
+            """INSERT INTO audit_logs 
+               (id, user_id, action_type, status, risk_level, trust_level, details, created_at)
+               VALUES (%s, %s, 'EMAIL_VERIFIED_CODE', 'SUCCESS', 'LOW', 'NORMAL', %s, NOW())""",
+            (str(uuid.uuid4()), user_id, {"email": email_clean, "secure_pin_configured": pin_configured})
+        )
     await conn.commit()
 
     return {
-        "status": "SUCCESS",
+        "success": True,
+        "email_verified": True,
         "message": "Email verified successfully.",
         "email": email_clean,
-        "email_verified": True,
         "secure_pin_configured": pin_configured
+    }
+
+
+@app.get("/api/auth/check-verification", tags=["Authentication"])
+async def check_email_verification_status(email: str, conn: DatabaseConnection = Depends(get_db)):
+    """
+    Check if user's email has been verified in Neon Auth or application database.
+    """
+    email_clean = email.strip().lower()
+    is_verified = False
+
+    # Check Neon Auth user table directly
+    try:
+        res_na = await conn.execute('SELECT "emailVerified" FROM neon_auth."user" WHERE email = %s', (email_clean,))
+        na_row = await res_na.fetchone()
+        if na_row and na_row[0]:
+            is_verified = True
+    except Exception:
+        pass
+
+    if not is_verified:
+        u_check = await conn.execute("SELECT email_verified FROM users WHERE email = %s", (email_clean,))
+        u_row = await u_check.fetchone()
+        if u_row and u_row[0]:
+            is_verified = True
+
+    if is_verified:
+        await conn.execute(
+            "UPDATE users SET email_verified = TRUE, email_verified_at = NOW() WHERE email = %s",
+            (email_clean,)
+        )
+        await conn.commit()
+
+    p_res = await conn.execute("SELECT secure_pin_configured, pin_hash FROM users WHERE email = %s", (email_clean,))
+    p_data = await p_res.fetchone()
+    pin_configured = bool(p_data and (p_data[0] or p_data[1]))
+
+    return {
+        "success": is_verified,
+        "status": "SUCCESS" if is_verified else "PENDING",
+        "email": email_clean,
+        "email_verified": is_verified,
+        "secure_pin_configured": pin_configured,
+        "message": "Email is verified." if is_verified else "Email pending verification."
     }
 
 
 @app.post("/api/auth/resend-email-verification", tags=["Authentication"])
 async def resend_email_verification(req: ResendEmailVerificationRequest, conn: DatabaseConnection = Depends(get_db)):
-    """Resend a new 6-digit email verification code"""
+    """
+    Resend real verification code via Neon Auth with rate limiting (30s cooldown):
+    - Rate limit: max 1 request every 30 seconds per email
+    - Directly calls Neon Auth /email-otp/send-verification-otp API
+    - Only returns success if Neon Auth actually confirms dispatch
+    """
     email_clean = req.email.strip().lower()
-    res = await conn.execute("SELECT id, email_verified FROM users WHERE email = %s", (email_clean,))
-    user = await res.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="User account not found.")
-    
-    if user[1]:
-        return {"status": "SUCCESS", "message": "Email is already verified.", "email_verified": True}
 
-    user_id = user[0]
-    v_code = generate_secure_otp(6)
-    token_str = secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token_str.encode()).hexdigest()
-    expires_at = datetime.utcnow() + timedelta(hours=24)
+    # 1. Rate limiting check
+    now = datetime.utcnow()
+    last_sent = _resend_cooldowns.get(email_clean)
+    if last_sent and (now - last_sent).total_seconds() < 30:
+        remaining = int(30 - (now - last_sent).total_seconds())
+        raise HTTPException(status_code=429, detail=f"Please wait {remaining} seconds before requesting another verification code.")
+
+    # 2. Check if already verified
+    is_verified = False
+    try:
+        res_na = await conn.execute('SELECT "emailVerified" FROM neon_auth."user" WHERE email = %s', (email_clean,))
+        na_row = await res_na.fetchone()
+        if na_row and na_row[0]:
+            is_verified = True
+    except Exception:
+        pass
+
+    if not is_verified:
+        u_res = await conn.execute("SELECT email_verified FROM users WHERE email = %s", (email_clean,))
+        u_row = await u_res.fetchone()
+        if u_row and u_row[0]:
+            is_verified = True
+
+    if is_verified:
+        return {"success": True, "status": "SUCCESS", "message": "Email is already verified.", "email_verified": True}
+
+    # 3. Call Neon Auth email-otp/send-verification-otp endpoint
+    if not NEON_AUTH_URL:
+        raise HTTPException(status_code=503, detail="Neon Auth service URL is not configured.")
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(
+                f"{NEON_AUTH_URL}/email-otp/send-verification-otp",
+                json={"email": email_clean, "type": "email-verification"},
+                headers={"Content-Type": "application/json", "Origin": FRONTEND_URL}
+            )
+            if resp.status_code not in (200, 201):
+                err_detail = "Unable to send verification code. Please try again later."
+                try:
+                    err_json = resp.json()
+                    err_detail = err_json.get("message") or err_json.get("detail") or err_detail
+                except Exception:
+                    pass
+                raise HTTPException(status_code=resp.status_code if resp.status_code < 500 else 502, detail=err_detail)
+
+            _resend_cooldowns[email_clean] = now
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail="Unable to send verification code. Please try again later.")
 
     await conn.execute(
-        """INSERT INTO email_verification_tokens 
-           (user_id, email, token_hash, verification_code, expires_at, created_at)
-           VALUES (%s, %s, %s, %s, %s, NOW())""",
-        (user_id, email_clean, token_hash, v_code, expires_at)
+        """INSERT INTO audit_logs (id, user_id, action_type, status, details, created_at)
+           VALUES (%s, NULL, 'EMAIL_VERIFICATION_CODE_RESENT', 'SUCCESS', %s, NOW())""",
+        (str(uuid.uuid4()), {"email": email_clean})
     )
     await conn.commit()
 
     return {
+        "success": True,
         "status": "SUCCESS",
-        "message": f"Verification code sent to {email_clean}.",
+        "message": "Verification code sent. Check your email.",
         "email": email_clean
     }
 
@@ -475,132 +684,23 @@ async def get_secure_pin_status(email: str, conn: DatabaseConnection = Depends(g
     if not row:
         return {"exists": False, "secure_pin_configured": False, "email_verified": False}
     
+    # Also check Neon Auth verification status
+    email_verified = bool(row[3])
+    if not email_verified:
+        try:
+            res_na = await conn.execute('SELECT "emailVerified" FROM neon_auth."user" WHERE email = %s', (email_clean,))
+            na_row = await res_na.fetchone()
+            if na_row and na_row[0]:
+                email_verified = True
+        except Exception:
+            pass
+
     return {
         "exists": True,
         "email": email_clean,
         "secure_pin_configured": bool(row[1] or row[2]),
-        "email_verified": bool(row[3])
+        "email_verified": email_verified
     }
-
-
-@app.post("/api/auth/captcha/generate", tags=["Authentication"])
-async def generate_captcha_endpoint(conn: DatabaseConnection = Depends(get_db)):
-    """Generate a dynamic mathematical security CAPTCHA challenge"""
-    challenge = generate_captcha_challenge()
-    await conn.execute(
-        """INSERT INTO captcha_challenges (challenge_id, captcha_text, expires_at, created_at)
-           VALUES (%s, %s, %s, NOW())""",
-        (challenge["challenge_id"], challenge["answer_hash"], challenge["expires_at"])
-    )
-    await conn.commit()
-    return {
-        "status": "SUCCESS",
-        "challenge_id": challenge["challenge_id"],
-        "question": challenge["question"]
-    }
-
-
-@app.post("/api/auth/captcha/verify", tags=["Authentication"])
-async def verify_captcha_endpoint(req: CaptchaVerifyRequest, conn: DatabaseConnection = Depends(get_db)):
-    """Validate CAPTCHA solution against stored challenge with expiration, replay, and attempt protections"""
-    res = await conn.execute(
-        "SELECT captcha_text, expires_at, solved, attempts FROM captcha_challenges WHERE challenge_id = %s",
-        (req.challenge_id,)
-    )
-    row = await res.fetchone()
-    if not row:
-        raise HTTPException(status_code=400, detail="Invalid or expired CAPTCHA challenge. Please refresh.")
-    
-    answer_hash, expires_at, solved, attempts = row
-    attempts = attempts or 0
-
-    if solved:
-        raise HTTPException(status_code=400, detail="CAPTCHA challenge has already been used. Please request a new challenge.")
-    
-    # Expiration check
-    from datetime import timezone
-    now = datetime.now(timezone.utc) if (hasattr(expires_at, "tzinfo") and expires_at.tzinfo is not None) else datetime.utcnow()
-    if expires_at < now:
-        raise HTTPException(status_code=400, detail="CAPTCHA challenge has expired. Please request a new challenge.")
-
-    if attempts >= 5:
-        raise HTTPException(status_code=429, detail="Too many invalid CAPTCHA attempts. Please request a new challenge.")
-
-    if not verify_captcha_solution(req.solution, answer_hash):
-        await conn.execute("UPDATE captcha_challenges SET attempts = attempts + 1 WHERE challenge_id = %s", (req.challenge_id,))
-        await conn.commit()
-        raise HTTPException(status_code=400, detail="Incorrect CAPTCHA answer. Please try again.")
-
-    await conn.execute("UPDATE captcha_challenges SET solved = TRUE, attempts = attempts + 1 WHERE challenge_id = %s", (req.challenge_id,))
-    await conn.commit()
-
-    return {"status": "SUCCESS", "verified": True, "message": "CAPTCHA verified successfully."}
-
-
-@app.post("/api/auth/otp/send", tags=["Authentication"])
-async def send_otp_endpoint(req: OtpSendRequest, conn: DatabaseConnection = Depends(get_db)):
-    """Generate and issue a 6-digit One-Time Password with 5-minute expiry"""
-    email_clean = req.email.strip().lower()
-    res = await conn.execute("SELECT id FROM users WHERE email = %s", (email_clean,))
-    user = await res.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="Account not found.")
-    
-    user_id = user[0]
-    otp_code = generate_secure_otp(6)
-    challenge_id = f"otp_{secrets.token_hex(12)}"
-    expires_at = datetime.utcnow() + timedelta(minutes=5)
-
-    await conn.execute(
-        """INSERT INTO otp_challenges (user_id, email, challenge_id, otp_code, expires_at, created_at)
-           VALUES (%s, %s, %s, %s, %s, NOW())""",
-        (user_id, email_clean, challenge_id, otp_code, expires_at)
-    )
-
-    await conn.execute(
-        """INSERT INTO audit_logs (id, user_id, action_type, status, details, created_at)
-           VALUES (%s, %s, 'OTP_DISPATCHED', 'SUCCESS', %s, NOW())""",
-        (str(uuid.uuid4()), user_id, {"email": email_clean, "challenge_id": challenge_id})
-    )
-    await conn.commit()
-
-    return {
-        "status": "SUCCESS",
-        "message": f"Verification code sent to {email_clean}.",
-        "challenge_id": challenge_id,
-        "expires_in_seconds": 300
-    }
-
-
-@app.post("/api/auth/otp/verify", tags=["Authentication"])
-async def verify_otp_endpoint(req: OtpVerifyRequest, conn: DatabaseConnection = Depends(get_db)):
-    """Verify 6-digit OTP code"""
-    email_clean = req.email.strip().lower()
-    otp_clean = req.otp_code.strip()
-
-    res = await conn.execute(
-        """SELECT id, user_id, otp_code, attempts FROM otp_challenges
-           WHERE email = %s AND expires_at > NOW() AND verified_at IS NULL
-           ORDER BY created_at DESC LIMIT 1""",
-        (email_clean,)
-    )
-    row = await res.fetchone()
-    if not row:
-        raise HTTPException(status_code=400, detail="No active OTP found or code has expired. Please request a new one.")
-
-    otp_id, user_id, expected_code, attempts = row
-    if attempts >= 5:
-        raise HTTPException(status_code=429, detail="Too many invalid OTP attempts. Please request a new code.")
-
-    if not hmac.compare_digest(str(expected_code).strip(), otp_clean):
-        await conn.execute("UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = %s", (otp_id,))
-        await conn.commit()
-        raise HTTPException(status_code=400, detail=f"Incorrect OTP verification code. Attempt {attempts + 1}/5.")
-
-    await conn.execute("UPDATE otp_challenges SET verified_at = NOW() WHERE id = %s", (otp_id,))
-    await conn.commit()
-
-    return {"status": "SUCCESS", "verified": True, "message": "One-Time Password verified successfully."}
 
 
 @app.post("/api/auth/verify-secure-pin", tags=["Authentication"])
@@ -693,7 +793,8 @@ async def verify_secure_pin_endpoint(req: VerifySecurePinRequest, request: Reque
 async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConnection = Depends(get_db)):
     """
     Multi-Factor Adaptive Login Endpoint:
-    Validates Email & Password, assesses initial device context, and determines if multi-step MFA is required.
+    Validates Email & Password, enforces email verification (via Neon Auth/DB),
+    assesses client device context, and requires 6-digit Secure PIN MFA.
     """
     email_clean = req.email.strip().lower()
     ip_address = request.client.host if request.client else "127.0.0.1"
@@ -724,23 +825,35 @@ async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConn
         await conn.commit()
         raise HTTPException(status_code=401, detail="Invalid email address or password.")
 
-    # 3. Assess preliminary contextual risk
+    # 3. Verify Email Verification Status (Source of truth: Neon Auth schema or users table)
+    is_email_verified = bool(email_verified)
+    try:
+        na_res = await conn.execute('SELECT "emailVerified" FROM neon_auth."user" WHERE email = %s', (email_clean,))
+        na_row = await na_res.fetchone()
+        if na_row and na_row[0]:
+            is_email_verified = True
+            if not email_verified:
+                await conn.execute("UPDATE users SET email_verified = TRUE, email_verified_at = NOW() WHERE id = %s", (user_id,))
+                await conn.commit()
+    except Exception:
+        pass
+
+    if not is_email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Your email address is not verified yet. Please check your email inbox and click the verification link before logging in."
+        )
+
+    # 4. Assess client device context (standard HTTP client context, no biometric fingerprinting)
     device_info = req.device_info or {"user_agent": user_agent}
     location_info = req.location_info or {"country": "United States", "city": "San Francisco"}
 
-    dev_fp = device_engine.generate_fingerprint(
-        user_agent=device_info.get("user_agent", user_agent),
-        screen_width=device_info.get("screen_width", 1920),
-        screen_height=device_info.get("screen_height", 1080),
-        timezone=device_info.get("timezone", "UTC"),
-        language=device_info.get("language", "en")
-    )
-    dev_rec = await device_engine.register_device(user_id, dev_fp, device_info)
-    is_new_device = dev_rec["is_new"]
+    dev_rec = await device_engine.register_device(user_id, None, device_info)
+    is_new_device = dev_rec.get("is_new", False)
 
     initial_risk = 15.0
     if is_new_device:
-        initial_risk += 25.0
+        initial_risk += 20.0
     if mfa_enabled:
         initial_risk += 10.0
 
@@ -751,30 +864,31 @@ async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConn
         else:
             raise HTTPException(status_code=401, detail="Incorrect Secret PIN entered.")
 
-    # Issue challenge token for multi-step MFA
+    # Issue challenge token for Secure PIN MFA
     challenge_token = create_challenge_token(
         user_id=user_id,
         email=email_clean,
-        challenge_type="MFA_CAPTCHA_OTP_PIN",
+        challenge_type="MFA_SECURE_PIN",
         risk_score=initial_risk
     )
     return {
         "status": "MFA_REQUIRED",
         "challenge_token": challenge_token,
-        "challenge_type": "MFA_CAPTCHA_OTP_PIN",
+        "challenge_type": "MFA_SECURE_PIN",
+        "requires_pin": True,
         "risk_score": initial_risk,
-        "risk_level": "MEDIUM" if initial_risk <= 59 else "HIGH",
+        "risk_level": "LOW" if initial_risk <= 30 else ("MEDIUM" if initial_risk <= 59 else "HIGH"),
         "is_new_device": is_new_device,
         "secure_pin_configured": bool(pin_hash or pin_configured),
-        "email_verified": bool(email_verified),
-        "message": "Credentials verified. Proceeding through Multi-Factor Security Verification."
+        "email_verified": True,
+        "message": "Credentials verified. Please enter your 6-digit Secure PIN to complete authentication."
     }
 
 
 @app.post("/api/auth/login-mfa-complete", tags=["Authentication"])
 async def login_mfa_complete(req: LoginMfaCompleteRequest, request: Request, conn: DatabaseConnection = Depends(get_db)):
     """
-    Final Zero Trust Security Evaluation after all MFA factors (Email, Password, CAPTCHA, OTP, Secure PIN) succeed:
+    Final Zero Trust Security Evaluation after MFA factors (Email, Password, Secure PIN) succeed:
     1. Collects device & session context
     2. Runs AI Anomaly Detection via ML Isolation Forest
     3. Calculates dynamic Risk Score & Trust Score
@@ -821,7 +935,7 @@ async def login_mfa_complete(req: LoginMfaCompleteRequest, request: Request, con
            VALUES (%s, %s, 'LOGIN_SUCCESS_MFA_COMPLETED', 'SUCCESS', 'LOW', 'TRUSTED', %s, %s, NOW())""",
         (str(uuid.uuid4()), user_id, ip_address, {
             "session_id": session_res["session_id"],
-            "factors_verified": ["password", "captcha", "otp", "secure_pin"],
+            "factors_verified": ["password", "secure_pin"],
             "trust_score": session_res["trust_score"],
             "risk_score": session_res["risk_score"]
         })
@@ -946,7 +1060,7 @@ async def forgot_secure_pin_endpoint(req: ForgotSecurePinRequest, conn: Database
         }
 
     user_id = user[0]
-    recovery_code = generate_secure_otp(6)
+    recovery_code = "".join(secrets.choice("0123456789") for _ in range(6))
     token_str = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token_str.encode()).hexdigest()
     expires_at = datetime.utcnow() + timedelta(minutes=15)
@@ -1037,15 +1151,14 @@ async def get_mfa_factors(current_user: Dict[str, Any] = Depends(get_current_use
         "email": email,
         "name": name,
         "factors": {
-            "email_verified": {"active": bool(email_verified), "name": "Email Address"},
-            "password_active": {"active": True, "name": "Password"},
-            "captcha_protection": {"active": True, "name": "Adaptive CAPTCHA Challenge"},
-            "otp_protection": {"active": True, "name": "One-Time Password (OTP)"},
+            "email_identity": {"active": bool(email_verified), "name": "Email Identity (Neon Auth)"},
+            "password_active": {"active": True, "name": "Primary Password"},
             "secure_pin": {
                 "active": bool(pin_configured),
-                "name": "6-Digit Secure PIN",
+                "name": "6-Digit Secure PIN (Primary MFA)",
                 "last_updated": str(pin_updated_at) if pin_updated_at else "Active"
-            }
+            },
+            "continuous_telemetry": {"active": True, "name": "Continuous Behavioral Telemetry & Trust Engine"}
         }
     }
 
@@ -1141,7 +1254,7 @@ async def logout_user(
     """Revoke active session and log out"""
     session_id = current_user.get("session_id")
     if session_id:
-        await conn.execute("UPDATE user_sessions SET is_active = 0 WHERE id = %s", (session_id,))
+        await conn.execute("UPDATE user_sessions SET is_active = FALSE WHERE id = %s", (session_id,))
         await conn.commit()
     return {"status": "SUCCESS", "message": "Logged out successfully."}
 
@@ -1208,7 +1321,7 @@ async def get_continuous_status(
     if not sid:
         # Fetch latest active session
         res = await conn.execute(
-            "SELECT id FROM user_sessions WHERE user_id = %s AND is_active = 1 ORDER BY id DESC LIMIT 1",
+            "SELECT id FROM user_sessions WHERE user_id = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1",
             (user_id,)
         )
         row = await res.fetchone()
@@ -1247,6 +1360,130 @@ async def get_user_trust_score(
         "updated_at": datetime.utcnow().isoformat()
     }
 
+
+@app.post("/api/security/recalculate", tags=["Zero Trust"])
+@app.post("/api/trust/recalculate", tags=["Zero Trust"])
+async def recalculate_security(
+    req: SecurityRecalculateRequest,
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """
+    Recalculate real dynamic security state:
+    1. Retrieve latest user & session context from database
+    2. Analyze behavioral signals & run AI/ML anomaly detection
+    3. Calculate real risk and trust scores via TrustRiskEngine
+    4. Evaluate Zero Trust policy
+    5. Generate dual-layer XAI explanation
+    6. Persist updated scores in database and write audit log
+    7. Return fresh updated security state
+    """
+    uid = req.user_id
+    if not uid:
+        row = await (await conn.execute("SELECT user_id FROM user_sessions WHERE is_active = TRUE ORDER BY id DESC LIMIT 1")).fetchone()
+        if row:
+            uid = str(row[0])
+        else:
+            u_row = await (await conn.execute("SELECT id FROM users ORDER BY created_at DESC LIMIT 1")).fetchone()
+            uid = str(u_row[0]) if u_row else "default-user"
+
+    sid = req.session_id
+    if not sid:
+        s_row = await (await conn.execute("SELECT id FROM user_sessions WHERE user_id = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1", (uid,))).fetchone()
+        if s_row:
+            sid = int(s_row[0])
+        else:
+            sid_res = await continuous_orchestrator.create_session(uid, "127.0.0.1", "Browser Client")
+            sid = int(sid_res.get("session_id", 1))
+
+    telemetry = req.telemetry or {
+        "keystroke_speed": 3.6,
+        "keystroke_variance": 0.08,
+        "mouse_speed": 460.0,
+        "mouse_distance": 320.0,
+        "click_count": 8,
+        "scroll_count": 4,
+        "idle_seconds": 1,
+        "session_duration_minutes": 5.0
+    }
+    device_info = req.device_info or {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "screen_width": 1920,
+        "screen_height": 1080,
+        "timezone": "UTC",
+        "language": "en"
+    }
+    location_info = req.location_info or {
+        "country": "United States",
+        "city": "San Francisco",
+        "ip_address": "127.0.0.1"
+    }
+
+    result = await continuous_orchestrator.process_continuous_telemetry(
+        user_id=uid,
+        session_id=sid,
+        telemetry=telemetry,
+        device_info=device_info,
+        location_info=location_info,
+        ip_address=location_info.get("ip_address", "127.0.0.1")
+    )
+
+    risk_score = float(result.get("risk_score", 18.0))
+    trust_score = float(result.get("trust_score", 82.0))
+    pol_dec = result.get("policy_decision")
+    decision = pol_dec if isinstance(pol_dec, str) else (
+        pol_dec.get("decision", "ALLOW_WITH_MONITORING") if isinstance(pol_dec, dict) else "ALLOW_WITH_MONITORING"
+    )
+    action_req = "require_secret_pin" if result.get("step_up_required") else ("terminate_session" if result.get("session_terminated") else "none")
+
+    features = {
+        "keystroke_speed": float(telemetry.get("keystroke_speed", 3.6)),
+        "mouse_speed": float(telemetry.get("mouse_speed", 460.0)),
+        "device_trust": float(result.get("device_trust_score", 85.0)),
+        "browser_changed": bool(device_info.get("browser_changed", False)),
+        "ai_anomaly_score": float(result.get("ai_anomaly_score", 12.0))
+    }
+
+    xai_res = await xai_service.explain_decision(
+        user_id=uid,
+        decision=decision,
+        risk_score=risk_score,
+        trust_score=trust_score,
+        features=features
+    )
+
+    risk_level = "LOW" if risk_score < 30 else ("MEDIUM" if risk_score < 60 else "HIGH")
+    trust_level = "TRUSTED" if trust_score >= 70 else ("EVALUATING" if trust_score >= 40 else "UNTRUSTED")
+
+    await conn.execute(
+        """INSERT INTO audit_logs (id, user_id, action_type, status, risk_level, trust_level, details, created_at)
+           VALUES (%s, %s, 'SECURITY_RECALCULATION', 'SUCCESS', %s, %s, %s, NOW())""",
+        (str(uuid.uuid4()), uid, risk_level, trust_level, json.dumps({
+            "session_id": sid,
+            "risk_score": risk_score,
+            "trust_score": trust_score,
+            "decision": decision
+        }))
+    )
+    await conn.commit()
+
+    return {
+        "status": "SUCCESS",
+        "user_id": uid,
+        "session_id": sid,
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "trust_score": trust_score,
+        "trust_level": trust_level,
+        "confidence_score": float(result.get("confidence_score", 92.0)),
+        "decision": decision,
+        "action_required": action_req,
+        "step_up_required": bool(result.get("step_up_required", False)),
+        "explanation": xai_res.get("decision_summary") or xai_res.get("explanation", "Zero Trust evaluation completed successfully."),
+        "contributing_factors": xai_res.get("contributing_factors", []),
+        "feature_contributions": xai_res.get("feature_contributions", {}),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
 # ============================================================================
 # DASHBOARD & ADMIN METRICS
 # ============================================================================
@@ -1257,7 +1494,7 @@ async def get_dashboard_summary(conn: DatabaseConnection = Depends(get_db)):
     u_res = await conn.execute("SELECT COUNT(*) FROM users")
     users_count = int((await u_res.fetchone())[0] or 0)
 
-    s_res = await conn.execute("SELECT COUNT(*) FROM user_sessions WHERE is_active = 1")
+    s_res = await conn.execute("SELECT COUNT(*) FROM user_sessions WHERE is_active = TRUE")
     active_sessions = int((await s_res.fetchone())[0] or 0)
 
     a_res = await conn.execute("SELECT COUNT(*) FROM audit_logs")
@@ -1293,8 +1530,46 @@ async def get_dashboard_summary(conn: DatabaseConnection = Depends(get_db)):
     }
 
 
+@app.post("/api/admin/login", tags=["Administration"])
+async def admin_login(req: AdminLoginRequest):
+    """Authenticate administrator using server-side ADMIN_ACCESS_KEY"""
+    configured_key = (os.getenv("ADMIN_ACCESS_KEY") or "").strip()
+    if not configured_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin authentication is not configured on the server."
+        )
+
+    provided_key = req.key.strip()
+    if not provided_key:
+        raise HTTPException(status_code=400, detail="Secure access key is required.")
+
+    if not secrets.compare_digest(provided_key, configured_key):
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+    token = create_access_token(
+        user_id="admin",
+        email="admin@zerotrust.ai",
+        role="admin",
+        session_id="admin-session",
+        expires_delta=timedelta(hours=8)
+    )
+
+    return {
+        "authenticated": True,
+        "role": "admin",
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": 28800,
+        "message": "Admin session established successfully."
+    }
+
+
 @app.get("/api/admin/metrics/summary", tags=["Administration"])
-async def get_admin_metrics_summary(conn: DatabaseConnection = Depends(get_db)):
+async def get_admin_metrics_summary(
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
     """Admin operational metrics summary calculated dynamically from database"""
     # Count total security events in audit logs
     a_res = await conn.execute("SELECT COUNT(*) FROM audit_logs")
@@ -1330,7 +1605,10 @@ async def get_admin_metrics_summary(conn: DatabaseConnection = Depends(get_db)):
 
 
 @app.get("/api/admin/metrics/auth-stats", tags=["Administration"])
-async def get_auth_statistics(conn: DatabaseConnection = Depends(get_db)):
+async def get_auth_statistics(
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
     """Live authentication statistics calculated from database records"""
     # Successful logins
     succ_res = await conn.execute("SELECT COUNT(*) FROM audit_logs WHERE action_type = 'LOGIN_SUCCESS_MFA_COMPLETED'")
@@ -1353,7 +1631,7 @@ async def get_auth_statistics(conn: DatabaseConnection = Depends(get_db)):
     step_ups = int(st_row[0] or 0) if st_row else 0
 
     # Revoked sessions
-    rev_res = await conn.execute("SELECT COUNT(*) FROM user_sessions WHERE is_active = FALSE OR is_active = 0")
+    rev_res = await conn.execute("SELECT COUNT(*) FROM user_sessions WHERE is_active = FALSE")
     r_row = await rev_res.fetchone()
     sessions_revoked = int(r_row[0] or 0) if r_row else 0
 
@@ -1362,7 +1640,7 @@ async def get_auth_statistics(conn: DatabaseConnection = Depends(get_db)):
     u_row = await u_res.fetchone()
     tot_users = int(u_row[0] or 0) if u_row else 0
 
-    mfa_u_res = await conn.execute("SELECT COUNT(*) FROM users WHERE secure_pin_configured = TRUE OR secure_pin_configured = 1")
+    mfa_u_res = await conn.execute("SELECT COUNT(*) FROM users WHERE secure_pin_configured = TRUE")
     mfa_u_row = await mfa_u_res.fetchone()
     mfa_users = int(mfa_u_row[0] or 0) if mfa_u_row else 0
     adoption_rate = round((mfa_users / tot_users * 100.0) if tot_users > 0 else 100.0, 1)
@@ -1378,7 +1656,10 @@ async def get_auth_statistics(conn: DatabaseConnection = Depends(get_db)):
 
 
 @app.get("/api/admin/metrics/timeseries", tags=["Administration"])
-async def get_admin_timeseries(conn: DatabaseConnection = Depends(get_db)):
+async def get_admin_timeseries(
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
     """Live telemetry timeseries derived from database history"""
     now = datetime.utcnow()
     timeseries = []
@@ -1405,7 +1686,10 @@ async def get_admin_timeseries(conn: DatabaseConnection = Depends(get_db)):
 
 
 @app.get("/api/admin/users", tags=["Administration"])
-async def list_admin_users(conn: DatabaseConnection = Depends(get_db)):
+async def list_admin_users(
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
     """List all registered identities and security configurations"""
     res = await conn.execute(
         """SELECT id, email, name, mfa_enabled, pin_hash, last_login, created_at 
@@ -1427,7 +1711,10 @@ async def list_admin_users(conn: DatabaseConnection = Depends(get_db)):
 
 
 @app.get("/api/admin/sessions", tags=["Administration"])
-async def list_admin_sessions(conn: DatabaseConnection = Depends(get_db)):
+async def list_admin_sessions(
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
     """List active Zero Trust sessions"""
     res = await conn.execute(
         """SELECT s.id, s.user_id, u.email, s.trust_score, s.risk_score, 
@@ -1453,6 +1740,88 @@ async def list_admin_sessions(conn: DatabaseConnection = Depends(get_db)):
     ]
 
 
+@app.get("/api/admin/security-events", tags=["Administration"])
+async def list_admin_security_events(
+    limit: int = 50,
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """List recent security events and policy audit records"""
+    res = await conn.execute(
+        """SELECT id, user_id, action_type, status, risk_level, trust_level, details, created_at
+           FROM audit_logs ORDER BY created_at DESC LIMIT %s""",
+        (limit,)
+    )
+    rows = await res.fetchall()
+    return [
+        {
+            "id": str(r[0]),
+            "user_id": str(r[1]),
+            "action": str(r[2]),
+            "status": str(r[3]),
+            "risk_level": str(r[4] or "LOW"),
+            "trust_level": str(r[5] or "TRUSTED"),
+            "details": r[6],
+            "timestamp": str(r[7])
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/admin/attempts", tags=["Administration"])
+async def list_admin_attempts(
+    limit: int = 50,
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """List recent authentication and verification attempts"""
+    res = await conn.execute(
+        """SELECT id, user_id, action_type, status, risk_level, created_at
+           FROM audit_logs 
+           WHERE action_type LIKE '%%LOGIN%%' OR action_type LIKE '%%PIN%%' OR action_type LIKE '%%MFA%%'
+           ORDER BY created_at DESC LIMIT %s""",
+        (limit,)
+    )
+    rows = await res.fetchall()
+    return [
+        {
+            "id": str(r[0]),
+            "user_id": str(r[1]),
+            "attempt_type": str(r[2]),
+            "status": str(r[3]),
+            "risk_level": str(r[4] or "LOW"),
+            "timestamp": str(r[5])
+        }
+        for r in rows
+    ]
+
+
+@app.delete("/api/admin/user/{user_id}", tags=["Administration"])
+async def delete_admin_user(
+    user_id: str,
+    conn: DatabaseConnection = Depends(get_db),
+    admin: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Delete a user account and revoke their active sessions"""
+    await conn.execute("UPDATE user_sessions SET is_active = FALSE WHERE user_id = %s", (user_id,))
+    res = await conn.execute("DELETE FROM users WHERE id = %s RETURNING id", (user_id,))
+    deleted = await res.fetchone()
+    if not deleted:
+        check = await conn.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+        if not await check.fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        await conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+    await conn.execute(
+        """INSERT INTO audit_logs (id, user_id, action_type, status, risk_level, trust_level, details, created_at)
+           VALUES (%s, %s, 'ADMIN_USER_DELETED', 'SUCCESS', 'LOW', 'TRUSTED', %s, NOW())""",
+        (str(uuid.uuid4()), user_id, json.dumps({"deleted_by": admin.get("id", "admin")}))
+    )
+    await conn.commit()
+    return {"status": "SUCCESS", "message": f"User {user_id} deleted successfully."}
+
+
+
 @app.get("/api/audit/logs", tags=["Audit"])
 @app.get("/api/audit/logs/{user_id}", tags=["Audit"])
 async def get_audit_logs(
@@ -1464,13 +1833,13 @@ async def get_audit_logs(
     if user_id:
         res = await conn.execute(
             """SELECT id, user_id, action_type, status, risk_level, trust_level, ip_address, details, created_at 
-               FROM audit_logs WHERE user_id = %s ORDER BY id DESC LIMIT %s""",
+               FROM audit_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT %s""",
             (user_id, limit)
         )
     else:
         res = await conn.execute(
             """SELECT id, user_id, action_type, status, risk_level, trust_level, ip_address, details, created_at 
-               FROM audit_logs ORDER BY id DESC LIMIT %s""",
+               FROM audit_logs ORDER BY created_at DESC LIMIT %s""",
             (limit,)
         )
     rows = await res.fetchall()

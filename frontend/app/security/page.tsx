@@ -99,8 +99,8 @@ export default function SecurityPage() {
                 <Shield className="size-6" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-slate-100">5-Stage Zero Trust MFA Active</h2>
-                <p className="text-xs text-slate-400">Software-only protection enforced across email, password, CAPTCHA, OTP, and Secure PIN</p>
+                <h2 className="text-lg font-bold text-slate-100">Adaptive Zero Trust MFA Active</h2>
+                <p className="text-xs text-slate-400">Enforced across Neon Auth verified email, salted bcrypt password, permanent Secure PIN, and AI telemetry</p>
               </div>
             </div>
             <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3.5 py-1.5 text-xs font-semibold text-emerald-300">
@@ -110,7 +110,7 @@ export default function SecurityPage() {
           </div>
 
           {/* Security Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Factor 1: Email Verified */}
             <div className="card space-y-4">
               <div className="flex items-center justify-between">
@@ -125,7 +125,7 @@ export default function SecurityPage() {
                 <h3 className="text-base font-semibold text-foreground">Email Identity</h3>
                 <p className="text-xs text-slate-400 mt-1">{user.email}</p>
               </div>
-              <div className="text-[11px] text-slate-500">Channel verification active for alerts & OTP dispatch.</div>
+              <div className="text-[11px] text-slate-500">Real cryptographic identity verified via Neon Auth.</div>
             </div>
 
             {/* Factor 2: Password */}
@@ -145,41 +145,7 @@ export default function SecurityPage() {
               <div className="text-[11px] text-slate-500">Primary credential factor for initial sign-in.</div>
             </div>
 
-            {/* Factor 3: CAPTCHA */}
-            <div className="card space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
-                  <Sparkles size={20} />
-                </div>
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                  <CheckCircle2 size={14} /> Automated
-                </span>
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-foreground">Adaptive CAPTCHA</h3>
-                <p className="text-xs text-slate-400 mt-1">Anti-Bot Mathematical Challenge</p>
-              </div>
-              <div className="text-[11px] text-slate-500">Dynamic challenge issued on each login attempt.</div>
-            </div>
-
-            {/* Factor 4: OTP */}
-            <div className="card space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400">
-                  <Smartphone size={20} />
-                </div>
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                  <CheckCircle2 size={14} /> Enabled
-                </span>
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-foreground">One-Time Password (OTP)</h3>
-                <p className="text-xs text-slate-400 mt-1">6-Digit Ephemeral Token</p>
-              </div>
-              <div className="text-[11px] text-slate-500">Dispatched with 5-minute cryptographic expiry.</div>
-            </div>
-
-            {/* Factor 5: Permanent Secure PIN */}
+            {/* Factor 3: Permanent Secure PIN */}
             <div className="card space-y-4 border-cyan-400/30 bg-cyan-950/10">
               <div className="flex items-center justify-between">
                 <div className="w-10 h-10 rounded-lg bg-cyan-400/20 flex items-center justify-center text-cyan-300">
@@ -191,7 +157,7 @@ export default function SecurityPage() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-foreground">Permanent Secure PIN</h3>
-                <p className="text-xs text-slate-400 mt-1">Configured Once ? Stored Permanently</p>
+                <p className="text-xs text-slate-400 mt-1">Configured Once - Stored Permanently</p>
               </div>
               <button 
                 type="button" 

@@ -1,22 +1,21 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
-  Activity, ArrowRight, CheckCircle2, Cpu, Eye, EyeOff, 
+  ArrowRight, CheckCircle2, Cpu, Eye, EyeOff, 
   KeyRound, Lock, LockKeyhole, Mail, RefreshCw, ShieldAlert, 
-  ShieldCheck, Sparkles 
+  ShieldCheck 
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
 import Link from 'next/link'
 
-type LoginStep = 'CREDENTIALS' | 'CAPTCHA' | 'OTP' | 'SECURE_PIN' | 'AI_EVALUATION'
+type LoginStep = 'CREDENTIALS' | 'SECURE_PIN' | 'AI_EVALUATION'
 
 export default function LoginPage() {
   const router = useRouter()
   const { 
-    login, generateCaptcha, verifyCaptcha, 
-    sendOtp, verifyOtp, verifySecurePin, 
+    login, verifySecurePin, 
     loginMfaComplete, isLoading 
   } = useAuthStore()
 
@@ -26,15 +25,7 @@ export default function LoginPage() {
   const [currentStep, setCurrentStep] = useState<LoginStep>('CREDENTIALS')
   const [localError, setLocalError] = useState('')
   const [localSuccess, setLocalSuccess] = useState('')
-
-  // CAPTCHA State
-  const [captchaChallenge, setCaptchaChallenge] = useState<{ challenge_id: string; question: string } | null>(null)
-  const [captchaSolution, setCaptchaSolution] = useState('')
-  const [captchaLoading, setCaptchaLoading] = useState(false)
-
-  // OTP State
-  const [otpCode, setOtpCode] = useState('')
-  const [otpCooldown, setOtpCooldown] = useState(0)
+  const [emailNotVerified, setEmailNotVerified] = useState(false)
 
   // Secure PIN State
   const [secretPin, setSecretPin] = useState('')
@@ -44,14 +35,6 @@ export default function LoginPage() {
   const [evalProgress, setEvalProgress] = useState(0)
   const [evalStatus, setEvalStatus] = useState('Initializing context telemetry...')
 
-  // Timer for OTP cooldown
-  useEffect(() => {
-    if (otpCooldown > 0) {
-      const timer = setTimeout(() => setOtpCooldown(otpCooldown - 1), 1000)
-      return () => clearTimeout(timer)
-    }
-  }, [otpCooldown])
-
   // ==========================================
   // STEP 1: CREDENTIALS (Email & Password)
   // ==========================================
@@ -59,6 +42,7 @@ export default function LoginPage() {
     e.preventDefault()
     setLocalError('')
     setLocalSuccess('')
+    setEmailNotVerified(false)
 
     if (!email || !password) {
       setLocalError('Please enter your registered email and password.')
@@ -66,100 +50,30 @@ export default function LoginPage() {
     }
 
     try {
-      // Step 1: Validate email & password credentials against backend
-      await login(email.trim(), password)
+      const res = await login(email.trim(), password)
       
-      // Advance to Step 2: CAPTCHA
-      setCaptchaLoading(true)
-      const cap = await generateCaptcha()
-      setCaptchaChallenge(cap)
-      setCaptchaLoading(false)
-      setCurrentStep('CAPTCHA')
-      setLocalSuccess('Credentials verified. Please solve the security challenge.')
-    } catch (err: any) {
-      setLocalError(err.message || 'Invalid email or password.')
-    }
-  }
+      // If user needs to configure Secure PIN for the first time
+      if (res && res.secure_pin_configured === false) {
+        router.replace(`/setup-secure-pin?email=${encodeURIComponent(email.trim())}`)
+        return
+      }
 
-  // ==========================================
-  // STEP 2: CAPTCHA VERIFICATION
-  // ==========================================
-  const handleCaptchaSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLocalError('')
-    setLocalSuccess('')
-
-    if (!captchaChallenge || !captchaSolution) {
-      setLocalError('Please enter the solution to the CAPTCHA.')
-      return
-    }
-
-    try {
-      await verifyCaptcha(captchaChallenge.challenge_id, captchaSolution)
-      
-      // Advance to Step 3: Dispatch OTP
-      await sendOtp(email.trim())
-      setOtpCooldown(45)
-      setCurrentStep('OTP')
-      setLocalSuccess('CAPTCHA verified. One-Time Password sent to your email.')
-    } catch (err: any) {
-      setLocalError(err.message || 'Incorrect CAPTCHA solution. Please try again.')
-      // Refresh CAPTCHA
-      refreshCaptcha()
-    }
-  }
-
-  const refreshCaptcha = async () => {
-    setCaptchaSolution('')
-    setCaptchaLoading(true)
-    try {
-      const cap = await generateCaptcha()
-      setCaptchaChallenge(cap)
-    } catch {
-      // Ignore
-    } finally {
-      setCaptchaLoading(false)
-    }
-  }
-
-  // ==========================================
-  // STEP 3: OTP VERIFICATION
-  // ==========================================
-  const handleOtpSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLocalError('')
-    setLocalSuccess('')
-
-    if (!otpCode || otpCode.length < 4) {
-      setLocalError('Please enter the 6-digit One-Time Password.')
-      return
-    }
-
-    try {
-      await verifyOtp(email.trim(), otpCode.trim())
-      
-      // Advance to Step 4: Secure PIN
+      // Advance to Step 2: Secure PIN MFA
       setCurrentStep('SECURE_PIN')
-      setLocalSuccess('OTP verified. Please enter your permanent 6-digit Secure PIN.')
+      setLocalSuccess('Credentials verified. Please enter your 6-digit Secure PIN.')
     } catch (err: any) {
-      setLocalError(err.message || 'Incorrect OTP code. Please try again.')
-    }
-  }
-
-  const handleResendOtp = async () => {
-    if (otpCooldown > 0) return
-    setLocalError('')
-    try {
-      await sendOtp(email.trim())
-      setOtpCooldown(45)
-      setLocalSuccess('A fresh OTP has been sent to your email.')
-    } catch (err: any) {
-      setLocalError(err.message || 'Failed to resend OTP.')
+      const msg = err.message || 'Invalid email or password.'
+      if (msg.toLowerCase().includes('not verified') || msg.toLowerCase().includes('verification link')) {
+        setEmailNotVerified(true)
+        setLocalError('Your email address has not yet been verified. Please open the link sent to your inbox.')
+      } else {
+        setLocalError(msg)
+      }
     }
   }
 
   // ==========================================
-  // STEP 4: SECURE PIN VERIFICATION
+  // STEP 2: SECURE PIN VERIFICATION (Primary MFA)
   // ==========================================
   const handleSecurePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -174,7 +88,7 @@ export default function LoginPage() {
     try {
       await verifySecurePin(email.trim(), secretPin.trim())
       
-      // Advance to Step 5: Continuous AI & Zero Trust Evaluation
+      // Advance to Step 3: Continuous AI & Zero Trust Evaluation
       setCurrentStep('AI_EVALUATION')
       runAIEvaluation()
     } catch (err: any) {
@@ -183,14 +97,14 @@ export default function LoginPage() {
   }
 
   // ==========================================
-  // STEP 5: AI & ZERO TRUST CONTINUOUS EVALUATION
+  // STEP 3: AI & ZERO TRUST CONTINUOUS EVALUATION
   // ==========================================
   const runAIEvaluation = () => {
-    setEvalProgress(15)
-    setEvalStatus('Analyzing behavioral keystroke cadence & mouse telemetry...')
+    setEvalProgress(20)
+    setEvalStatus('Analyzing client context & behavioral telemetry...')
 
     setTimeout(() => {
-      setEvalProgress(45)
+      setEvalProgress(50)
       setEvalStatus('Running Isolation Forest Machine Learning Anomaly Detection...')
     }, 600)
 
@@ -202,7 +116,7 @@ export default function LoginPage() {
     setTimeout(async () => {
       try {
         setEvalProgress(100)
-        setEvalStatus('Access Granted ? Zero Trust Continuous Session Active')
+        setEvalStatus('Access Granted - Zero Trust Continuous Session Active')
         await loginMfaComplete(email.trim())
         setTimeout(() => {
           router.replace('/dashboard')
@@ -215,20 +129,16 @@ export default function LoginPage() {
   }
 
   const stepsList = [
-    { key: 'CREDENTIALS', label: '1. Credentials' },
-    { key: 'CAPTCHA', label: '2. CAPTCHA' },
-    { key: 'OTP', label: '3. Email OTP' },
-    { key: 'SECURE_PIN', label: '4. Secure PIN' },
-    { key: 'AI_EVALUATION', label: '5. AI Zero Trust' }
+    { key: 'CREDENTIALS', label: '1. Primary Credentials' },
+    { key: 'SECURE_PIN', label: '2. Permanent Secure PIN' },
+    { key: 'AI_EVALUATION', label: '3. Zero Trust AI Evaluation' }
   ]
 
   const getStepIndex = (s: LoginStep) => {
     switch (s) {
       case 'CREDENTIALS': return 0
-      case 'CAPTCHA': return 1
-      case 'OTP': return 2
-      case 'SECURE_PIN': return 3
-      case 'AI_EVALUATION': return 4
+      case 'SECURE_PIN': return 1
+      case 'AI_EVALUATION': return 2
     }
   }
 
@@ -252,7 +162,7 @@ export default function LoginPage() {
             <span className="text-cyan-300">Verify Every Signal.</span>
           </h1>
           <p className="mt-6 max-w-lg text-base leading-7 text-slate-400">
-            Autonomous multi-factor authentication with adaptive CAPTCHA, cryptographic OTP, permanent Secure PIN, and real-time Isolation Forest continuous behavioral AI trust scoring.
+            Autonomous multi-factor authentication with verified email identity via Neon Auth, permanent Secure PIN protection, and real-time Isolation Forest continuous behavioral AI trust scoring.
           </p>
 
           {/* Step Progress Checklist */}
@@ -275,7 +185,7 @@ export default function LoginPage() {
                     ? 'bg-cyan-400 text-slate-950 animate-pulse'
                     : 'bg-white/10 text-slate-400'
                 }`}>
-                  {idx < activeIndex ? '?' : idx + 1}
+                  {idx < activeIndex ? '✓' : idx + 1}
                 </div>
                 <span>{stepItem.label}</span>
                 {idx === activeIndex && <span className="ml-auto text-[10px] text-cyan-300 uppercase tracking-widest">Active</span>}
@@ -285,7 +195,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-xs text-slate-600">Enterprise Security Standard ? Never Trust, Always Verify</p>
+        <p className="text-xs text-slate-600">Enterprise Security Standard - Never Trust, Always Verify</p>
       </section>
 
       {/* Right Login Card */}
@@ -308,14 +218,24 @@ export default function LoginPage() {
                   </div>
                   <h2 className="text-xl font-bold text-slate-100">Operator Sign In</h2>
                   <p className="mt-1 text-xs text-slate-400">
-                    Step 1 of 5: Enter your account email and password
+                    Step 1 of 3: Enter your account email and password
                   </p>
                 </div>
 
                 {localError && (
-                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-                    <ShieldAlert className="size-4 shrink-0 text-rose-400" />
-                    <span>{localError}</span>
+                  <div className="mb-4 flex flex-col gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert className="size-4 shrink-0 text-rose-400" />
+                      <span>{localError}</span>
+                    </div>
+                    {emailNotVerified && (
+                      <Link 
+                        href={`/verify-email?email=${encodeURIComponent(email)}`}
+                        className="mt-1 inline-flex items-center gap-1 font-semibold text-cyan-300 hover:text-cyan-200 underline"
+                      >
+                        Proceed to Email Verification Page &rarr;
+                      </Link>
+                    )}
                   </div>
                 )}
 
@@ -330,7 +250,7 @@ export default function LoginPage() {
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="admin@zerotrust.ai"
+                        placeholder="operator@zerotrust.ai"
                         required
                         className="w-full rounded-xl border border-white/10 bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
                       />
@@ -347,7 +267,7 @@ export default function LoginPage() {
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="????????????"
+                        placeholder="••••••••••••"
                         required
                         className="w-full rounded-xl border border-white/10 bg-slate-800/80 pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
                       />
@@ -366,7 +286,7 @@ export default function LoginPage() {
                       </>
                     ) : (
                       <>
-                        Verify & Proceed to MFA
+                        Verify & Proceed to Secure PIN
                         <ArrowRight className="size-4" />
                       </>
                     )}
@@ -375,132 +295,7 @@ export default function LoginPage() {
               </>
             )}
 
-            {/* Step 2: CAPTCHA */}
-            {currentStep === 'CAPTCHA' && (
-              <>
-                <div className="mb-6 text-center">
-                  <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
-                    <Sparkles className="size-6" />
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-100">CAPTCHA Challenge</h2>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Step 2 of 5: Solve the automated bot protection challenge
-                  </p>
-                </div>
-
-                {localError && (
-                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-                    <ShieldAlert className="size-4 shrink-0 text-rose-400" />
-                    <span>{localError}</span>
-                  </div>
-                )}
-
-                <div className="mb-5 flex items-center justify-between rounded-xl border border-cyan-400/20 bg-cyan-950/20 p-4">
-                  <div>
-                    <p className="text-xs text-cyan-300 font-semibold">Security Math Challenge</p>
-                    <p className="text-lg font-mono font-bold text-slate-100 mt-1">
-                      {captchaLoading ? 'Generating challenge...' : captchaChallenge?.question || 'What is 18 + 24?'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={refreshCaptcha}
-                    disabled={captchaLoading}
-                    className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 hover:text-cyan-300"
-                    title="Refresh Challenge"
-                  >
-                    <RefreshCw className={`size-4 ${captchaLoading ? 'animate-spin' : ''}`} />
-                  </button>
-                </div>
-
-                <form onSubmit={handleCaptchaSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                      Challenge Answer
-                    </label>
-                    <input
-                      type="text"
-                      value={captchaSolution}
-                      onChange={(e) => setCaptchaSolution(e.target.value)}
-                      placeholder="Enter numeric answer"
-                      required
-                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-800/80 px-3.5 py-2.5 text-center text-lg font-mono text-cyan-300 placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={!captchaSolution}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-cyan-400 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
-                  >
-                    Verify CAPTCHA
-                    <ArrowRight className="size-4" />
-                  </button>
-                </form>
-              </>
-            )}
-
-            {/* Step 3: OTP */}
-            {currentStep === 'OTP' && (
-              <>
-                <div className="mb-6 text-center">
-                  <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
-                    <Mail className="size-6" />
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-100">One-Time Password (OTP)</h2>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Step 3 of 5: Enter the 6-digit code sent to {email}
-                  </p>
-                </div>
-
-                {localError && (
-                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-                    <ShieldAlert className="size-4 shrink-0 text-rose-400" />
-                    <span>{localError}</span>
-                  </div>
-                )}
-
-                <form onSubmit={handleOtpSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                      6-Digit OTP Code
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="Enter 6-digit code"
-                      required
-                      className="mt-1 w-full rounded-xl border border-white/10 bg-slate-800/80 px-3.5 py-2.5 text-center text-xl font-mono tracking-widest text-cyan-300 placeholder-slate-600 focus:border-cyan-400 focus:outline-none"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={!otpCode || otpCode.length < 4}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-cyan-400 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-300 disabled:opacity-50"
-                  >
-                    Verify OTP
-                    <ArrowRight className="size-4" />
-                  </button>
-                </form>
-
-                <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
-                  <span>Code valid for 5 minutes</span>
-                  <button
-                    type="button"
-                    onClick={handleResendOtp}
-                    disabled={otpCooldown > 0}
-                    className="font-semibold text-cyan-300 hover:text-cyan-200 disabled:text-slate-500"
-                  >
-                    {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend OTP'}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* Step 4: Secure PIN */}
+            {/* Step 2: Secure PIN */}
             {currentStep === 'SECURE_PIN' && (
               <>
                 <div className="mb-6 text-center">
@@ -509,7 +304,7 @@ export default function LoginPage() {
                   </div>
                   <h2 className="text-xl font-bold text-slate-100">Permanent Secure PIN</h2>
                   <p className="mt-1 text-xs text-slate-400">
-                    Step 4 of 5: Enter your 6-digit Secret PIN factor
+                    Step 2 of 3: Enter your 6-digit Secret PIN factor
                   </p>
                 </div>
 
@@ -540,7 +335,7 @@ export default function LoginPage() {
                       maxLength={8}
                       value={secretPin}
                       onChange={(e) => setSecretPin(e.target.value.replace(/\D/g, ''))}
-                      placeholder="??????"
+                      placeholder="••••••"
                       required
                       className="mt-1 w-full rounded-xl border border-white/10 bg-slate-800/80 px-3.5 py-2.5 text-center text-xl font-mono tracking-widest text-cyan-300 placeholder-slate-600 focus:border-cyan-400 focus:outline-none"
                     />
@@ -567,7 +362,7 @@ export default function LoginPage() {
               </>
             )}
 
-            {/* Step 5: AI & Zero Trust Evaluation */}
+            {/* Step 3: AI & Zero Trust Evaluation */}
             {currentStep === 'AI_EVALUATION' && (
               <div className="py-6 text-center">
                 <div className="relative mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl border border-cyan-400/40 bg-cyan-950/40 text-cyan-300">
@@ -598,7 +393,7 @@ export default function LoginPage() {
                   </div>
                   <div className="rounded-xl border border-white/5 bg-white/[.02] p-2.5">
                     <span className="text-slate-500 block">Trust Level</span>
-                    <span className="text-cyan-300 font-mono">ELEVATED_TRUST (92%)</span>
+                    <span className="text-cyan-300 font-mono">ELEVATED_TRUST (94%)</span>
                   </div>
                 </div>
               </div>
@@ -615,7 +410,7 @@ export default function LoginPage() {
                   }}
                   className="text-slate-400 hover:text-slate-200"
                 >
-                  ? Back to Credentials
+                  &larr; Back to Credentials
                 </button>
               ) : (
                 <span>Need an account?</span>

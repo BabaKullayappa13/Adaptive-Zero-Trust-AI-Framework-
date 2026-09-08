@@ -33,20 +33,9 @@ class ContinuousAuthenticationOrchestrator:
     ) -> Dict[str, Any]:
         """Create a new continuous authentication session"""
 
-        # 1. Generate device profile fingerprint
-        device_fingerprint = self.device.generate_fingerprint(
-            user_agent=device_info.get("user_agent", ""),
-            screen_width=device_info.get("screen_width", 1920),
-            screen_height=device_info.get("screen_height", 1080),
-            timezone=device_info.get("timezone", "UTC"),
-            language=device_info.get("language", "en"),
-            platform=device_info.get("platform", "")
-        )
-
-        # 2. Register or retrieve device
+        # 1. Register or retrieve client device context without biometrics
         device_result = await self.device.register_device(
             user_id=user_id,
-            device_fingerprint=device_fingerprint,
             device_info=device_info
         )
         device_id = device_result["device_id"]

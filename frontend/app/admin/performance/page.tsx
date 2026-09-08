@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { RefreshCw } from 'lucide-react'
 import { apiClient } from '@/lib/api'
 
 function AdminPerformancePageContent() {
@@ -13,32 +14,32 @@ function AdminPerformancePageContent() {
   const [loading, setLoading] = useState(true)
   const [selectedMetric, setSelectedMetric] = useState('http_request')
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        const hoursNum = parseInt(hours)
-        
-        const [summary, auth, ts, rpsData] = await Promise.all([
-          apiClient.getMetricsSummary(hoursNum),
-          apiClient.getAuthStats(hoursNum),
-          apiClient.getTimeseriesData(selectedMetric, hoursNum),
-          apiClient.getRPS(Math.min(hoursNum, 1)),
-        ])
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      const hoursNum = parseInt(hours)
 
-        setMetricsSummary(summary.data)
-        setAuthStats(auth.data)
-        setTimeseriesData(ts.data || [])
-        setRps(rpsData.data)
-      } catch (error) {
-        console.error('[v0] Failed to fetch metrics:', error)
-      } finally {
-        setLoading(false)
-      }
+      const [summary, auth, ts, rpsData] = await Promise.all([
+        apiClient.getMetricsSummary(hoursNum),
+        apiClient.getAuthStats(hoursNum),
+        apiClient.getTimeseriesData(selectedMetric, hoursNum),
+        apiClient.getRPS(Math.min(hoursNum, 1)),
+      ])
+
+      setMetricsSummary(summary.data)
+      setAuthStats(auth.data)
+      setTimeseriesData(ts.data || [])
+      setRps(rpsData.data)
+    } catch (error) {
+      console.error('[v0] Failed to fetch metrics:', error)
+    } finally {
+      setLoading(false)
     }
-
-    fetchData()
   }, [hours, selectedMetric])
+
+  useEffect(() => {
+    void fetchData()
+  }, [fetchData])
 
   const handleExportCSV = async () => {
     try {
@@ -94,8 +95,16 @@ function AdminPerformancePageContent() {
             </select>
           </div>
 
-          <div className="flex items-end">
-            <button onClick={handleExportCSV} className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 hover:bg-gray-50 font-medium">
+          <div className="flex items-end gap-2">
+            <button
+              onClick={() => void fetchData()}
+              disabled={loading}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 hover:bg-gray-50 font-medium disabled:opacity-60"
+            >
+              <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button onClick={handleExportCSV} className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 hover:bg-gray-50 font-medium">
               Export CSV
             </button>
           </div>

@@ -221,6 +221,36 @@ class APIClient {
     return this.client.get('/api/admin/sessions')
   }
 
+  async getAdminSecurityEvents(limit: number = 50) {
+    return this.client.get(`/api/admin/security-events?limit=${limit}`)
+  }
+
+  async getAdminAttempts(limit: number = 50) {
+    return this.client.get(`/api/admin/attempts?limit=${limit}`)
+  }
+
+  async deleteAdminUser(userId: string) {
+    return this.client.delete(`/api/admin/user/${userId}`)
+  }
+
+  async getAdminHealth() {
+    return this.client.get('/health/admin')
+  }
+
+  async adminLogin(key: string) {
+    return this.client.post('/api/admin/login', { key })
+  }
+
+  async recalculateSecurity(data?: {
+    user_id?: string
+    session_id?: number
+    telemetry?: any
+    device_info?: any
+    location_info?: any
+  }) {
+    return this.client.post('/api/security/recalculate', data || {})
+  }
+
   async getAuditLogs(userId?: string, limit: number = 50) {
     const url = userId ? `/api/audit/logs/${userId}?limit=${limit}` : `/api/audit/logs?limit=${limit}`
     return this.client.get(url)

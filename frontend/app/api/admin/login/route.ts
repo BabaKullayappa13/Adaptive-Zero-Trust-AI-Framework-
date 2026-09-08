@@ -29,15 +29,54 @@ export async function POST(request: Request) {
   if (!valid) return NextResponse.json({ detail: 'Invalid admin key' }, { status: 401 })
 
   const issuedAt = Math.floor(Date.now() / 1000).toString()
-  const value = `${issuedAt}.${signature(issuedAt)}`
-  const response = NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } })
-  response.cookies.set('admin_session', value, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path: '/',
-    maxAge: SESSION_TTL_SECONDS,
-  })
+  const sig = signature(issuedAt)
+  const value = sig ? `${issuedAt}.${sig}` : ''
+
+  // Attempt to obtain token from FastAPI backend if available
+  let adminToken: string | null = null
+  const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000'
+  try {
+    const backendResp = await fetch(`${backendUrl.replace(/\/$/, '')}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: providedKey }),
+      cache: 'no-store',
+    })
+    if (backendResp.ok) {
+      const data = await backendResp.json().catch(() => null)
+      if (data?.access_token) {
+        adminToken = data.access_token
+      }
+    }
+  } catch {
+    // Local session fallback succeeds even if direct backend call had transient failure
+  }
+
+  const response = NextResponse.json(
+    { ok: true, authenticated: true, role: 'admin', access_token: adminToken },
+    { headers: { 'Cache-Control': 'no-store' } }
+  )
+
+  if (value) {
+    response.cookies.set('admin_session', value, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: SESSION_TTL_SECONDS,
+    })
+  }
+
+  if (adminToken) {
+    response.cookies.set('admin_token', adminToken, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: SESSION_TTL_SECONDS,
+    })
+  }
+
   return response
 }
 

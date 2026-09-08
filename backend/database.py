@@ -100,13 +100,24 @@ class DatabaseConnection:
                     processed.append(p)
         return tuple(processed)
 
+    def _convert_query_postgres(self, query: str) -> str:
+        """Normalize boolean comparisons for PostgreSQL to prevent operator does not exist: boolean = integer"""
+        converted = re.sub(r"\bis_active\s*=\s*1\b", "is_active = TRUE", query, flags=re.IGNORECASE)
+        converted = re.sub(r"\bis_active\s*=\s*0\b", "is_active = FALSE", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"\bemail_verified\s*=\s*1\b", "email_verified = TRUE", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"\bemail_verified\s*=\s*0\b", "email_verified = FALSE", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"\bsecure_pin_configured\s*=\s*1\b", "secure_pin_configured = TRUE", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"\bsecure_pin_configured\s*=\s*0\b", "secure_pin_configured = FALSE", converted, flags=re.IGNORECASE)
+        return converted
+
     async def execute(self, query: str, params: Optional[Union[Tuple, List]] = None):
         """Execute a query and return a cursor with fetch methods"""
         converted_query = self._convert_query(query)
         converted_params = self._convert_params(params)
 
         if self.is_postgres:
-            cursor = await self.raw_conn.execute(query, converted_params)
+            pg_query = self._convert_query_postgres(query)
+            cursor = await self.raw_conn.execute(pg_query, converted_params)
             return cursor
         else:
             cursor = await self.raw_conn.execute(converted_query, converted_params)
@@ -327,27 +338,8 @@ class DatabaseManager:
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     );
 
-                    CREATE TABLE IF NOT EXISTS otp_challenges (
-                        id SERIAL PRIMARY KEY,
-                        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                        email VARCHAR(320) NOT NULL,
-                        challenge_id VARCHAR(100) NOT NULL UNIQUE,
-                        otp_code VARCHAR(10) NOT NULL,
-                        attempts INTEGER DEFAULT 0,
-                        expires_at TIMESTAMPTZ NOT NULL,
-                        verified_at TIMESTAMPTZ,
-                        created_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-
-                    CREATE TABLE IF NOT EXISTS captcha_challenges (
-                        id SERIAL PRIMARY KEY,
-                        challenge_id VARCHAR(100) NOT NULL UNIQUE,
-                        captcha_text VARCHAR(128) NOT NULL,
-                        expires_at TIMESTAMPTZ NOT NULL,
-                        solved BOOLEAN DEFAULT FALSE,
-                        attempts INTEGER DEFAULT 0,
-                        created_at TIMESTAMPTZ DEFAULT NOW()
-                    );
+                    DROP TABLE IF EXISTS captcha_challenges;
+                    DROP TABLE IF EXISTS otp_challenges;
 
                     CREATE TABLE IF NOT EXISTS auth_sessions (
                         id UUID PRIMARY KEY,
@@ -363,7 +355,7 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS user_devices (
                         id SERIAL PRIMARY KEY,
                         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                        device_fingerprint VARCHAR(255) NOT NULL UNIQUE,
+                        device_fingerprint VARCHAR(255),
                         device_name VARCHAR(255),
                         browser_name VARCHAR(100),
                         browser_version VARCHAR(100),
@@ -631,31 +623,7 @@ class DatabaseManager:
                         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                     );
                 """)
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS otp_challenges (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id TEXT,
-                        email TEXT NOT NULL,
-                        challenge_id TEXT NOT NULL UNIQUE,
-                        otp_code TEXT NOT NULL,
-                        attempts INTEGER DEFAULT 0,
-                        expires_at TEXT NOT NULL,
-                        verified_at TEXT,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                    );
-                """)
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS captcha_challenges (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        challenge_id TEXT NOT NULL UNIQUE,
-                        captcha_text TEXT NOT NULL,
-                        expires_at TEXT NOT NULL,
-                        solved INTEGER DEFAULT 0,
-                        attempts INTEGER DEFAULT 0,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
+
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS auth_sessions (
                         id TEXT PRIMARY KEY,
@@ -673,7 +641,7 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS user_devices (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id TEXT NOT NULL,
-                        device_fingerprint TEXT NOT NULL UNIQUE,
+                        device_fingerprint TEXT,
                         device_name TEXT,
                         browser_name TEXT,
                         browser_version TEXT,

@@ -32,11 +32,11 @@ export interface MfaFactorsResponse {
   email: string
   name?: string
   factors: {
-    email_verified: { active: boolean; name: string }
+    email_identity?: { active: boolean; name: string }
+    email_verified?: { active: boolean; name: string }
     password_active: { active: boolean; name: string }
-    captcha_protection: { active: boolean; name: string }
-    otp_protection: { active: boolean; name: string }
     secure_pin: { active: boolean; name: string; last_updated: string }
+    continuous_telemetry?: { active: boolean; name: string }
   }
 }
 
@@ -50,17 +50,14 @@ interface AuthState {
 
   // Core Authentication & Registration
   register: (email: string, password: string, name?: string, secretPin?: string) => Promise<any>
-  verifyEmail: (email: string, verificationCode: string) => Promise<any>
+  verifyEmail: (email: string, code?: string, token?: string) => Promise<any>
+  checkVerification: (email: string) => Promise<{ status: string; email_verified: boolean; secure_pin_configured: boolean; message?: string }>
   resendEmailVerification: (email: string) => Promise<any>
   setupSecurePin: (email: string, secretPin: string, confirmPin: string) => Promise<any>
   getSecurePinStatus: (email: string) => Promise<{ exists: boolean; secure_pin_configured: boolean; email_verified: boolean }>
 
   // Multi-Factor Authentication Progression
   login: (email: string, password: string, secretPin?: string, totpCode?: string) => Promise<LoginResult>
-  generateCaptcha: () => Promise<{ challenge_id: string; question: string }>
-  verifyCaptcha: (challengeId: string, solution: string) => Promise<boolean>
-  sendOtp: (email: string) => Promise<{ challenge_id: string }>
-  verifyOtp: (email: string, otpCode: string) => Promise<boolean>
   verifySecurePin: (email: string, secretPin: string) => Promise<boolean>
   loginMfaComplete: (email: string) => Promise<LoginResult>
   verifyPinChallenge: (challengeToken: string, secretPin: string) => Promise<void>
@@ -140,7 +137,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  verifyEmail: async (email: string, verificationCode: string) => {
+  verifyEmail: async (email: string, code?: string, token?: string) => {
     set({ isLoading: true, error: null })
     try {
       const res = await fetch('/api/auth/verify-email', {
@@ -148,18 +145,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: email.trim(),
-          verification_code: verificationCode.trim()
+          code: code ? code.trim() : undefined,
+          token: token ? token.trim() : undefined
         })
       })
       const data = await readApiResponse<Record<string, any>>(res)
-      if (!res.ok) {
-        throw new Error(data.detail || 'Email verification failed')
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || data.detail || 'Email verification failed')
       }
       set({ isLoading: false })
       return data
     } catch (err: any) {
       set({ isLoading: false, error: err.message || 'Email verification failed' })
       throw err
+    }
+  },
+
+  checkVerification: async (email: string) => {
+    try {
+      const res = await fetch(`/api/auth/check-verification?email=${encodeURIComponent(email.trim())}`)
+      const data = await readApiResponse<{ status: string; email_verified: boolean; secure_pin_configured: boolean; message?: string }>(res)
+      return data
+    } catch {
+      return { status: 'PENDING', email_verified: false, secure_pin_configured: false }
     }
   },
 
@@ -171,7 +179,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         body: JSON.stringify({ email: email.trim() })
       })
       const data = await readApiResponse<Record<string, any>>(res)
-      if (!res.ok) throw new Error(data.detail || 'Failed to resend verification')
+      if (!res.ok || data.success === false) throw new Error(data.message || data.detail || 'Failed to resend verification code')
       return data
     } catch (err: any) {
       throw err
@@ -210,46 +218,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       return { exists: false, secure_pin_configured: false, email_verified: false }
     }
-  },
-
-  generateCaptcha: async () => {
-    const res = await fetch('/api/auth/captcha/generate', { method: 'POST' })
-    const data = await readApiResponse<{ challenge_id: string; question: string; detail?: string }>(res)
-    if (!res.ok) throw new Error(data.detail || 'Failed to generate CAPTCHA')
-    return data
-  },
-
-  verifyCaptcha: async (challengeId: string, solution: string) => {
-    const res = await fetch('/api/auth/captcha/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ challenge_id: challengeId, solution: solution.trim() })
-    })
-    const data = await readApiResponse<Record<string, any>>(res)
-    if (!res.ok) throw new Error(data.detail || 'Incorrect CAPTCHA solution')
-    return true
-  },
-
-  sendOtp: async (email: string) => {
-    const res = await fetch('/api/auth/otp/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim() })
-    })
-    const data = await readApiResponse<{ challenge_id: string; detail?: string }>(res)
-    if (!res.ok) throw new Error(data.detail || 'Failed to send OTP')
-    return data
-  },
-
-  verifyOtp: async (email: string, otpCode: string) => {
-    const res = await fetch('/api/auth/otp/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), otp_code: otpCode.trim() })
-    })
-    const data = await readApiResponse<Record<string, any>>(res)
-    if (!res.ok) throw new Error(data.detail || 'Incorrect OTP code')
-    return true
   },
 
   verifySecurePin: async (email: string, secretPin: string) => {

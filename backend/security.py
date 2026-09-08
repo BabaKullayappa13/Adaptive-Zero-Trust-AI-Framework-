@@ -9,7 +9,7 @@ import jwt
 from jwt import PyJWKClient, PyJWKClientError
 import pyotp
 from dotenv import load_dotenv
-from fastapi import HTTPException, Security, Depends
+from fastapi import HTTPException, Security, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 load_dotenv()
@@ -202,54 +202,6 @@ def verify_secret_pin(plain_pin: str, hashed_pin: str) -> bool:
         return False
 
 
-def generate_secure_otp(length: int = 6) -> str:
-    """Generate a cryptographically secure numeric OTP code"""
-    return "".join(str(secrets.randbelow(10)) for _ in range(length))
-
-
-def generate_captcha_challenge() -> dict:
-    """
-    Generate a dynamic mathematical security CAPTCHA challenge.
-    Returns: challenge_id, question, answer_hash, expires_at
-    """
-    num1 = secrets.randbelow(40) + 10  # 10 to 49
-    num2 = secrets.randbelow(40) + 10  # 10 to 49
-    op = secrets.choice(["+", "-"])
-    
-    if op == "+":
-        answer = str(num1 + num2)
-        question = f"What is {num1} + {num2}?"
-    else:
-        large = max(num1, num2)
-        small = min(num1, num2)
-        answer = str(large - small)
-        question = f"What is {large} - {small}?"
-        
-    challenge_id = f"cap_{secrets.token_hex(12)}"
-    salt = secrets.token_hex(8)
-    answer_hash = hashlib.sha256(f"{answer}:{salt}".encode("utf-8")).hexdigest() + f":{salt}"
-    
-    return {
-        "challenge_id": challenge_id,
-        "question": question,
-        "answer_hash": answer_hash,
-        "expires_at": datetime.utcnow() + timedelta(minutes=5)
-    }
-
-
-def verify_captcha_solution(user_solution: str, stored_hash: str) -> bool:
-    """Verify user CAPTCHA response against the salted SHA256 hash"""
-    try:
-        if not user_solution or not stored_hash or ":" not in stored_hash:
-            return False
-        expected_hash, salt = stored_hash.rsplit(":", 1)
-        clean_solution = str(user_solution).strip()
-        computed_hash = hashlib.sha256(f"{clean_solution}:{salt}".encode("utf-8")).hexdigest()
-        return hmac.compare_digest(expected_hash, computed_hash)
-    except Exception:
-        return False
-
-
 def create_access_token(
     user_id: str,
     email: str = "",
@@ -411,3 +363,71 @@ def ensure_owner(requested_user_id: str, current_user_id: str) -> None:
     """Enforce resource authorization"""
     if str(requested_user_id) != str(current_user_id) and current_user_id != "admin":
         raise HTTPException(status_code=403, detail="Access denied to requested resource")
+
+
+async def get_current_admin_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme)
+) -> Dict[str, Any]:
+    """
+    FastAPI dependency to authenticate and verify administrative privileges:
+    1. Check Authorization Bearer token (JWT with role == 'admin')
+    2. Check 'admin_session' cookie (signed by ADMIN_SESSION_SECRET)
+    3. Check 'x-admin-access-key' header (matching ADMIN_ACCESS_KEY)
+    """
+    admin_access_key = (os.getenv("ADMIN_ACCESS_KEY") or "").strip()
+    session_secret = os.getenv("ADMIN_SESSION_SECRET") or os.getenv("SECRET_KEY") or admin_access_key
+
+    # 1. Bearer token
+    if credentials and credentials.credentials:
+        try:
+            payload = decode_token(credentials.credentials, expected_type="access")
+            if payload.get("role") == "admin":
+                return {
+                    "id": str(payload.get("sub") or "admin"),
+                    "email": payload.get("email", "admin@zerotrust.ai"),
+                    "role": "admin",
+                    "auth_source": "admin_jwt"
+                }
+        except Exception:
+            pass
+
+    # 2. X-Admin-Access-Key header
+    header_key = request.headers.get("x-admin-access-key", "").strip()
+    if header_key and admin_access_key and secrets.compare_digest(header_key, admin_access_key):
+        return {
+            "id": "admin",
+            "email": "admin@zerotrust.ai",
+            "role": "admin",
+            "auth_source": "admin_access_key"
+        }
+
+    # 3. Next.js admin_session cookie
+    cookie_val = request.cookies.get("admin_session")
+    if cookie_val and "." in cookie_val:
+        parts = cookie_val.split(".", 1)
+        if len(parts) == 2:
+            issued_at_str, provided_sig = parts
+            try:
+                ts = int(issued_at_str)
+                if abs(datetime.utcnow().timestamp() - ts) < 8 * 3600:
+                    computed_sig = hmac.new(
+                        session_secret.encode("utf-8"),
+                        issued_at_str.encode("utf-8"),
+                        hashlib.sha256
+                    ).hexdigest()
+                    if secrets.compare_digest(provided_sig, computed_sig):
+                        return {
+                            "id": "admin",
+                            "email": "admin@zerotrust.ai",
+                            "role": "admin",
+                            "auth_source": "admin_session_cookie"
+                        }
+            except Exception:
+                pass
+
+    raise HTTPException(
+        status_code=401,
+        detail="Admin authentication required. Provide valid admin credentials."
+    )
+

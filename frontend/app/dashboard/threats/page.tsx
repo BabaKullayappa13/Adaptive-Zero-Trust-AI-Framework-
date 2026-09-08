@@ -111,8 +111,8 @@ export default function ThreatsPage() {
 
             <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[.02] p-3.5">
               <div>
-                <span className="font-semibold text-slate-200">Unrecognized Browser Fingerprint</span>
-                <p className="text-[11px] text-slate-400">New screen resolution and user agent context hash</p>
+                <span className="font-semibold text-slate-200">Unrecognized Client Device Context</span>
+                <p className="text-[11px] text-slate-400">New user agent and operating system client context</p>
               </div>
               <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1 font-semibold text-cyan-300">
                 STEP-UP VERIFIED
