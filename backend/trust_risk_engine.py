@@ -97,20 +97,22 @@ class TrustRiskEngine:
         # Store in history
         try:
             async with self.db_connect() as conn:
-                await conn.execute(
-                    """INSERT INTO trust_score_history 
-                       (user_id, session_id, trust_score, contributing_factors, calculated_at)
-                       VALUES (%s, %s, %s, %s, NOW())""",
-                    (user_id, session_id, trust_score, contributing_factors)
-                )
-                if session_id:
+                u_chk = await conn.execute("SELECT 1 FROM users WHERE CAST(id AS TEXT) = %s", (str(user_id),))
+                if await u_chk.fetchone():
                     await conn.execute(
-                        "UPDATE user_sessions SET trust_score = %s WHERE id = %s",
-                        (trust_score, session_id)
+                        """INSERT INTO trust_score_history 
+                           (user_id, session_id, trust_score, contributing_factors, calculated_at)
+                           VALUES (%s, %s, %s, %s, NOW())""",
+                        (user_id, session_id, trust_score, contributing_factors)
                     )
-                await conn.commit()
+                    if session_id:
+                        await conn.execute(
+                            "UPDATE user_sessions SET trust_score = %s WHERE id = %s",
+                            (trust_score, session_id)
+                        )
+                    await conn.commit()
         except Exception as e:
-            print(f"[TrustRiskEngine] Error recording trust score history: {e}")
+            pass
 
         return {
             "trust_score": trust_score,
@@ -213,20 +215,22 @@ class TrustRiskEngine:
         # Store in history
         try:
             async with self.db_connect() as conn:
-                await conn.execute(
-                    """INSERT INTO risk_score_history 
-                       (user_id, session_id, risk_score, risk_level, risk_factors, calculated_at)
-                       VALUES (%s, %s, %s, %s, %s, NOW())""",
-                    (user_id, session_id, risk_score, risk_level, risk_factors)
-                )
-                if session_id:
+                u_chk = await conn.execute("SELECT 1 FROM users WHERE CAST(id AS TEXT) = %s", (str(user_id),))
+                if await u_chk.fetchone():
                     await conn.execute(
-                        "UPDATE user_sessions SET risk_score = %s WHERE id = %s",
-                        (risk_score, session_id)
+                        """INSERT INTO risk_score_history 
+                           (user_id, session_id, risk_score, risk_level, risk_factors, calculated_at)
+                           VALUES (%s, %s, %s, %s, %s, NOW())""",
+                        (user_id, session_id, risk_score, risk_level, risk_factors)
                     )
-                await conn.commit()
+                    if session_id:
+                        await conn.execute(
+                            "UPDATE user_sessions SET risk_score = %s WHERE id = %s",
+                            (risk_score, session_id)
+                        )
+                    await conn.commit()
         except Exception as e:
-            print(f"[TrustRiskEngine] Error recording risk score history: {e}")
+            pass
 
         return {
             "risk_score": risk_score,

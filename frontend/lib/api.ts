@@ -369,6 +369,107 @@ class APIClient {
   async getComplianceScore() {
     return this.client.get('/api/research/compliance-score')
   }
+
+  // ============================================================
+  // Master Prompt Suite: Profile, Session Lock, XAI, Cloud Gateway,
+  // Policy Audit, Threat Intelligence & Real Application Simulation
+  // ============================================================
+
+  async getUserProfile() {
+    return this.client.get('/api/user/profile')
+  }
+
+  async updateUserProfile(name: string) {
+    return this.client.put('/api/user/profile', { name })
+  }
+
+  async getUserSessions() {
+    return this.client.get('/api/user/sessions')
+  }
+
+  async revokeUserSession(sessionId: number) {
+    return this.client.post('/api/user/sessions/revoke', { session_id: sessionId })
+  }
+
+  async getUserDevices() {
+    return this.client.get('/api/user/devices')
+  }
+
+  async updateInactivitySettings(thresholdSeconds: number) {
+    return this.client.post('/api/user/settings/inactivity', { threshold_seconds: thresholdSeconds })
+  }
+
+  async lockSession(sessionId?: number, reason: string = 'User or Inactivity') {
+    return this.client.post('/api/session/lock', { session_id: sessionId, reason })
+  }
+
+  async unlockSession(params: { sessionId?: number; secretPin?: string; password?: string }) {
+    return this.client.post('/api/session/unlock', {
+      session_id: params.sessionId,
+      secret_pin: params.secretPin,
+      password: params.password,
+    })
+  }
+
+  async sendSessionHeartbeat(idleSeconds: number, sessionId?: number, activityCount: number = 0) {
+    return this.client.post('/api/session/heartbeat', {
+      idle_seconds: idleSeconds,
+      session_id: sessionId,
+      activity_count: activityCount,
+    })
+  }
+
+  async getSecurityEvents(timeRange: string = '1h', limit: number = 50) {
+    return this.client.get(`/api/security/events?time_range=${encodeURIComponent(timeRange)}&limit=${limit}`)
+  }
+
+  async getCommandCenterMetrics(timeRange: string = '1d') {
+    return this.client.get(`/api/dashboard/command-center?time_range=${encodeURIComponent(timeRange)}`)
+  }
+
+  async getZeroTrustControlPanel() {
+    return this.client.get('/api/zero-trust/control-panel')
+  }
+
+  async evaluateZeroTrustRequest(data: { resource_id: string; destination_environment?: string; session_id?: number; context?: any }) {
+    return this.client.post('/api/zero-trust/evaluate-request', data)
+  }
+
+  async getXaiHistory(limit: number = 20) {
+    return this.client.get(`/api/explainability/history?limit=${limit}`)
+  }
+
+  async submitGatewayRequest(data: { resource_id: string; destination_environment?: string; session_id?: number; context?: any }) {
+    return this.client.post('/api/cloud/gateway/request', data)
+  }
+
+  async getGatewayTelemetry(timeRange: string = '1d') {
+    return this.client.get(`/api/cloud/gateway/telemetry?time_range=${encodeURIComponent(timeRange)}`)
+  }
+
+  async getPolicyAuditLogs(params?: { time_range?: string; decision?: string; limit?: number }) {
+    const query = new URLSearchParams()
+    if (params?.time_range) query.append('time_range', params.time_range)
+    if (params?.decision) query.append('decision', params.decision)
+    if (params?.limit) query.append('limit', String(params.limit))
+    return this.client.get(`/api/policies/audit?${query.toString()}`)
+  }
+
+  async getPolicyAuditStats(timeRange: string = '1d') {
+    return this.client.get(`/api/policies/audit/stats?time_range=${encodeURIComponent(timeRange)}`)
+  }
+
+  async getThreatIntelligence(timeRange: string = '1d') {
+    return this.client.get(`/api/threats/intelligence?time_range=${encodeURIComponent(timeRange)}`)
+  }
+
+  async getBehavioralAccuracy() {
+    return this.client.get('/api/research/behavioral-accuracy')
+  }
+
+  async runSimulationScenario(scenario: string, userId?: string) {
+    return this.client.post('/api/simulation/scenario', { scenario, user_id: userId })
+  }
 }
 
 export const apiClient = new APIClient()

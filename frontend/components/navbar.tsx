@@ -1,8 +1,10 @@
 'use client'
 
+import React, { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Activity, Bell, ChevronRight, ClipboardList, Cloud, LayoutDashboard, LockKeyhole, LogOut, Network, Settings, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Activity, Bell, ChevronRight, ClipboardList, Cloud, LayoutDashboard, LockKeyhole, LogOut, Network, Settings, ShieldCheck, SlidersHorizontal, Sparkles, User as UserIcon } from 'lucide-react'
+import UserProfileModal from './user-profile-modal'
 
 interface NavbarProps { user: { email?: string }; onLogout: () => void }
 const links = [
@@ -20,6 +22,7 @@ const links = [
 export default function Navbar({ user, onLogout }: NavbarProps) {
   const router = useRouter()
   const pathname = usePathname()
+  const [profileOpen, setProfileOpen] = useState(false)
   const active = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
   const logout = () => { onLogout(); router.push('/') }
 
@@ -68,19 +71,30 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
           <ChevronRight className="ml-auto size-4" />
         </Link>
 
-        <div className="mt-4 flex items-center gap-3 border-t border-white/[.08] pt-4">
-          <div className="flex size-9 items-center justify-center rounded-full bg-cyan-300/15 text-xs font-bold text-cyan-200">
-            {user?.email?.slice(0, 1).toUpperCase() || 'O'}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-slate-200">{user?.email || 'operator@zerotrust.ai'}</p>
-            <p className="text-[10px] uppercase tracking-widest text-slate-500">Security Operator</p>
-          </div>
+        {/* User Profile Bar - Clickable to open 8-part Profile Modal */}
+        <div className="mt-4 flex items-center gap-2 border-t border-white/[.08] pt-4">
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            title="Open User Profile"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1.5 text-left transition-colors hover:bg-white/[.06] group"
+          >
+            <div className="flex size-9 items-center justify-center rounded-full bg-cyan-300/15 text-xs font-bold text-cyan-200 border border-cyan-500/20 group-hover:border-cyan-400/50">
+              {user?.email?.slice(0, 1).toUpperCase() || 'O'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-slate-200 group-hover:text-cyan-200">{user?.email || 'operator@zerotrust.ai'}</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-500 flex items-center gap-1">
+                Security Profile <ChevronRight className="size-2.5 opacity-60" />
+              </p>
+            </div>
+          </button>
           <button
             type="button"
             onClick={logout}
             aria-label="Log out"
-            className="rounded-lg p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300"
+            title="Sign out of framework"
+            className="rounded-lg p-2 text-slate-500 hover:bg-rose-400/10 hover:text-rose-300 transition-colors"
           >
             <LogOut className="size-4" />
           </button>
@@ -93,7 +107,14 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
           <ShieldCheck className="size-5 text-cyan-300" />
           AZT <span className="text-cyan-300">AI</span>
         </Link>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setProfileOpen(true)}
+            className="flex size-8 items-center justify-center rounded-full bg-cyan-300/15 text-xs font-bold text-cyan-200"
+          >
+            {user?.email?.slice(0, 1).toUpperCase() || 'O'}
+          </button>
           <button type="button" aria-label="Log out" onClick={logout} className="rounded-lg p-2 text-slate-400 hover:bg-rose-400/10 hover:text-rose-300">
             <LogOut className="size-4" />
           </button>
@@ -108,6 +129,14 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
           </Link>
         ))}
       </nav>
+
+      {/* User Profile Modal */}
+      <UserProfileModal
+        isOpen={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        userEmail={user?.email}
+        onLogout={logout}
+      />
     </>
   )
 }

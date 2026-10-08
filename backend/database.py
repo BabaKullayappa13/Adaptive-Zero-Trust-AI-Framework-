@@ -74,8 +74,14 @@ class DatabaseConnection:
         converted = re.sub(r"NOW\(\)\s*\+\s*INTERVAL\s*'(\d+)\s*hours?'", r"datetime('now', '+\1 hours')", converted, flags=re.IGNORECASE)
         converted = re.sub(r"NOW\(\)\s*\+\s*INTERVAL\s*'(\d+)\s*minutes?'", r"datetime('now', '+\1 minutes')", converted, flags=re.IGNORECASE)
         converted = re.sub(r"NOW\(\)\s*\+\s*INTERVAL\s*'(\d+)\s*days?'", r"datetime('now', '+\1 days')", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"NOW\(\)\s*-\s*INTERVAL\s*'(\d+)\s*hours?'", r"datetime('now', '-\1 hours')", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"NOW\(\)\s*-\s*INTERVAL\s*'(\d+)\s*minutes?'", r"datetime('now', '-\1 minutes')", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"NOW\(\)\s*-\s*INTERVAL\s*'(\d+)\s*days?'", r"datetime('now', '-\1 days')", converted, flags=re.IGNORECASE)
         converted = re.sub(r"CURRENT_TIMESTAMP\s*\+\s*INTERVAL\s*'(\d+)\s*hours?'", r"datetime('now', '+\1 hours')", converted, flags=re.IGNORECASE)
         converted = re.sub(r"CURRENT_TIMESTAMP\s*\+\s*INTERVAL\s*'(\d+)\s*minutes?'", r"datetime('now', '+\1 minutes')", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"CURRENT_TIMESTAMP\s*-\s*INTERVAL\s*'(\d+)\s*hours?'", r"datetime('now', '-\1 hours')", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"CURRENT_TIMESTAMP\s*-\s*INTERVAL\s*'(\d+)\s*minutes?'", r"datetime('now', '-\1 minutes')", converted, flags=re.IGNORECASE)
+        converted = re.sub(r"CURRENT_TIMESTAMP\s*-\s*INTERVAL\s*'(\d+)\s*days?'", r"datetime('now', '-\1 days')", converted, flags=re.IGNORECASE)
         # Remove JSON cast like '{}'::jsonb or %s::jsonb
         converted = re.sub(r"::jsonb?", "", converted)
         return converted
@@ -224,20 +230,18 @@ class DatabaseManager:
             try:
                 if self._pool_queue and not self._pool_queue.empty():
                     raw_conn = self._pool_queue.get_nowait()
-                else:
-                    raw_conn = await self._create_pg_connection()
-
-                if raw_conn.closed:
+                
+                if not raw_conn or getattr(raw_conn, 'broken', False) or getattr(raw_conn, 'closed', False):
                     raw_conn = await self._create_pg_connection()
 
                 yield DatabaseConnection(raw_conn, is_postgres=True)
 
-                if self._pool_queue and not self._pool_queue.full() and not raw_conn.closed:
+                if self._pool_queue and not self._pool_queue.full() and not getattr(raw_conn, 'broken', False) and not raw_conn.closed:
                     self._pool_queue.put_nowait(raw_conn)
                 else:
                     await raw_conn.close()
             except Exception as e:
-                if raw_conn and not raw_conn.closed:
+                if raw_conn and not getattr(raw_conn, 'closed', False):
                     try:
                         await raw_conn.close()
                     except Exception:
@@ -282,17 +286,6 @@ class DatabaseManager:
 
         async with self.get_connection() as conn:
             if self.is_postgres:
-                # Fast check if tables are already created
-                try:
-                    check = await conn.execute("SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users' LIMIT 1")
-                    has_users = await check.fetchone()
-                except Exception:
-                    has_users = None
-
-                if has_users:
-                    self._initialized = True
-                    return
-
                 await conn.execute("""
                     CREATE EXTENSION IF NOT EXISTS pgcrypto;
                     
@@ -573,6 +566,75 @@ class DatabaseManager:
                         endpoint VARCHAR(255),
                         status_code INTEGER,
                         recorded_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS policy_audit_logs (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        user_id VARCHAR(255),
+                        session_id INTEGER,
+                        requested_resource VARCHAR(255),
+                        policy_id INTEGER,
+                        policy_name VARCHAR(255),
+                        policy_version VARCHAR(50) DEFAULT 'v1.0.0',
+                        input_context JSONB DEFAULT '{}'::jsonb,
+                        risk_score FLOAT DEFAULT 0.0,
+                        decision VARCHAR(50) NOT NULL,
+                        reason TEXT,
+                        mfa_status VARCHAR(50),
+                        device_status VARCHAR(50),
+                        gateway_environment VARCHAR(50) DEFAULT 'public',
+                        result VARCHAR(50),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS xai_decision_records (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        event_id VARCHAR(255),
+                        user_id VARCHAR(255),
+                        session_id INTEGER,
+                        model_version VARCHAR(100) DEFAULT 'XAI-IsolationForest-GBM-v2.1',
+                        input_features JSONB DEFAULT '{}'::jsonb,
+                        risk_score FLOAT DEFAULT 0.0,
+                        confidence_score FLOAT DEFAULT 0.0,
+                        prediction VARCHAR(100),
+                        explanation JSONB DEFAULT '{}'::jsonb,
+                        decision VARCHAR(50),
+                        dominant_risk_factor VARCHAR(100),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS gateway_requests (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        user_id VARCHAR(255),
+                        session_id INTEGER,
+                        resource_id VARCHAR(255),
+                        resource_name VARCHAR(255),
+                        destination_environment VARCHAR(50) DEFAULT 'public',
+                        endpoint_url VARCHAR(500),
+                        identity_verified BOOLEAN DEFAULT TRUE,
+                        mfa_status VARCHAR(50),
+                        device_trust_score FLOAT DEFAULT 50.0,
+                        risk_score FLOAT DEFAULT 0.0,
+                        policy_result VARCHAR(50),
+                        gateway_decision VARCHAR(50) NOT NULL,
+                        latency_ms FLOAT DEFAULT 0.0,
+                        status_code INTEGER DEFAULT 200,
+                        is_simulation BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS threat_indicators (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        indicator_type VARCHAR(100) NOT NULL,
+                        severity VARCHAR(50) NOT NULL,
+                        user_id VARCHAR(255),
+                        session_id INTEGER,
+                        source_ip VARCHAR(100),
+                        details JSONB DEFAULT '{}'::jsonb,
+                        status VARCHAR(50) DEFAULT 'ACTIVE',
+                        detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        resolved_at TIMESTAMPTZ
                     );
                 """)
             else:
@@ -887,6 +949,79 @@ class DatabaseManager:
                         recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
                     );
                 """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS policy_audit_logs (
+                        id TEXT PRIMARY KEY,
+                        timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        user_id TEXT,
+                        session_id INTEGER,
+                        requested_resource TEXT,
+                        policy_id INTEGER,
+                        policy_name TEXT,
+                        policy_version TEXT DEFAULT 'v1.0.0',
+                        input_context TEXT DEFAULT '{}',
+                        risk_score REAL DEFAULT 0,
+                        decision TEXT NOT NULL,
+                        reason TEXT,
+                        mfa_status TEXT,
+                        device_status TEXT,
+                        gateway_environment TEXT DEFAULT 'public',
+                        result TEXT,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS xai_decision_records (
+                        id TEXT PRIMARY KEY,
+                        event_id TEXT,
+                        user_id TEXT,
+                        session_id INTEGER,
+                        model_version TEXT DEFAULT 'XAI-IsolationForest-GBM-v2.1',
+                        input_features TEXT DEFAULT '{}',
+                        risk_score REAL DEFAULT 0,
+                        confidence_score REAL DEFAULT 0,
+                        prediction TEXT,
+                        explanation TEXT DEFAULT '{}',
+                        decision TEXT,
+                        dominant_risk_factor TEXT,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS gateway_requests (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT,
+                        session_id INTEGER,
+                        resource_id TEXT,
+                        resource_name TEXT,
+                        destination_environment TEXT DEFAULT 'public',
+                        endpoint_url TEXT,
+                        identity_verified INTEGER DEFAULT 1,
+                        mfa_status TEXT,
+                        device_trust_score REAL DEFAULT 50,
+                        risk_score REAL DEFAULT 0,
+                        policy_result TEXT,
+                        gateway_decision TEXT NOT NULL,
+                        latency_ms REAL DEFAULT 0,
+                        status_code INTEGER DEFAULT 200,
+                        is_simulation INTEGER DEFAULT 0,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS threat_indicators (
+                        id TEXT PRIMARY KEY,
+                        indicator_type TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        user_id TEXT,
+                        session_id INTEGER,
+                        source_ip TEXT,
+                        details TEXT DEFAULT '{}',
+                        status TEXT DEFAULT 'ACTIVE',
+                        detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        resolved_at TEXT
+                    );
+                """)
 
             if self.is_postgres:
                 migration_statements = [
@@ -897,15 +1032,31 @@ class DatabaseManager:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'operator'",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS secure_pin_configured BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_created_at TIMESTAMPTZ DEFAULT NOW()",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_updated_at TIMESTAMPTZ DEFAULT NOW()",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_failed_login TIMESTAMPTZ",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_failed_login_reason VARCHAR(255)",
                     
                     "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS step_up_required BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS trust_score FLOAT DEFAULT 50",
                     "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS risk_score FLOAT DEFAULT 50",
+                    "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS session_status VARCHAR(50) DEFAULT 'ACTIVE'",
+                    "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ",
+                    "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS inactivity_threshold_seconds INTEGER DEFAULT 600",
+                    "ALTER TABLE user_devices ADD COLUMN IF NOT EXISTS platform VARCHAR(100) DEFAULT 'Desktop Client'",
+                    "ALTER TABLE user_devices ADD COLUMN IF NOT EXISTS browser VARCHAR(100) DEFAULT 'Browser Session'",
+                    "ALTER TABLE user_devices ADD COLUMN IF NOT EXISTS last_used TIMESTAMPTZ DEFAULT NOW()",
 
                     "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS risk_level VARCHAR(50) DEFAULT 'LOW'",
                     "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS trust_level VARCHAR(50) DEFAULT 'NORMAL'",
                     "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details JSONB",
                     "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(100)",
+                    "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS is_simulation BOOLEAN DEFAULT FALSE",
 
                     "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS round_id INTEGER",
                     "ALTER TABLE federated_models ADD COLUMN IF NOT EXISTS round_number INTEGER",
@@ -957,39 +1108,52 @@ class DatabaseManager:
                     "ALTER TABLE trust_policies ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
                     "ALTER TABLE trust_policies ADD COLUMN IF NOT EXISTS min_trust_score FLOAT DEFAULT 60.0",
                     "ALTER TABLE trust_policies ADD COLUMN IF NOT EXISTS max_risk_score FLOAT DEFAULT 40.0",
-
-                    "ALTER TABLE federated_models ALTER COLUMN id SET DEFAULT gen_random_uuid()",
-                    "CREATE SEQUENCE IF NOT EXISTS federated_rounds_id_seq",
-                    "ALTER TABLE federated_rounds ALTER COLUMN id SET DEFAULT nextval('federated_rounds_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS federated_participants_id_seq",
-                    "ALTER TABLE federated_participants ALTER COLUMN id SET DEFAULT nextval('federated_participants_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS user_sessions_id_seq",
-                    "ALTER TABLE user_sessions ALTER COLUMN id SET DEFAULT nextval('user_sessions_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS user_devices_id_seq",
-                    "ALTER TABLE user_devices ALTER COLUMN id SET DEFAULT nextval('user_devices_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS behavioral_patterns_id_seq",
-                    "ALTER TABLE behavioral_patterns ALTER COLUMN id SET DEFAULT nextval('behavioral_patterns_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS trust_scores_id_seq",
-                    "ALTER TABLE trust_scores ALTER COLUMN id SET DEFAULT nextval('trust_scores_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS risk_scores_id_seq",
-                    "ALTER TABLE risk_scores ALTER COLUMN id SET DEFAULT nextval('risk_scores_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS trust_policies_id_seq",
-                    "ALTER TABLE trust_policies ALTER COLUMN id SET DEFAULT nextval('trust_policies_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS cloud_configurations_id_seq",
-                    "ALTER TABLE cloud_configurations ALTER COLUMN id SET DEFAULT nextval('cloud_configurations_id_seq')",
-                    "CREATE SEQUENCE IF NOT EXISTS performance_metrics_id_seq",
-                    "ALTER TABLE performance_metrics ALTER COLUMN id SET DEFAULT nextval('performance_metrics_id_seq')"
+                    "ALTER TABLE trust_policies ADD COLUMN IF NOT EXISTS version VARCHAR(50) DEFAULT 'v1.0.0'",
+                    "ALTER TABLE trust_policies ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active'",
+                    "ALTER TABLE trust_policies ADD COLUMN IF NOT EXISTS effective_date TIMESTAMPTZ DEFAULT NOW()",
+                    "ALTER TABLE trust_policies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"
                 ]
                 for stmt in migration_statements:
                     try:
                         await conn.execute(stmt)
                     except Exception:
                         pass
+            else:
+                sqlite_migrations = [
+                    "ALTER TABLE users ADD COLUMN secure_pin_configured INTEGER DEFAULT 0",
+                    "ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1",
+                    "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'operator'",
+                    "ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 1",
+                    "ALTER TABLE users ADD COLUMN email_verified_at TEXT",
+                    "ALTER TABLE users ADD COLUMN pin_created_at TEXT",
+                    "ALTER TABLE users ADD COLUMN pin_updated_at TEXT",
+                    "ALTER TABLE users ADD COLUMN last_failed_login TEXT",
+                    "ALTER TABLE users ADD COLUMN last_failed_login_reason TEXT",
+                    "ALTER TABLE user_sessions ADD COLUMN session_status TEXT DEFAULT 'ACTIVE'",
+                    "ALTER TABLE user_sessions ADD COLUMN locked_at TEXT",
+                    "ALTER TABLE user_sessions ADD COLUMN inactivity_threshold_seconds INTEGER DEFAULT 600",
+                    "ALTER TABLE trust_policies ADD COLUMN version TEXT DEFAULT 'v1.0.0'",
+                    "ALTER TABLE trust_policies ADD COLUMN status TEXT DEFAULT 'active'",
+                    "ALTER TABLE trust_policies ADD COLUMN effective_date TEXT",
+                    "ALTER TABLE trust_policies ADD COLUMN updated_at TEXT",
+                    "ALTER TABLE audit_logs ADD COLUMN is_simulation INTEGER DEFAULT 0"
+                ]
+                for stmt in sqlite_migrations:
+                    try:
+                        await conn.execute(stmt)
+                    except Exception:
+                        pass
 
-            await conn.commit()
+            try:
+                await conn.commit()
+            except Exception:
+                pass
 
-            # Seed default records if empty
-            await self._seed_defaults(conn)
+            try:
+                await self._seed_defaults(conn)
+            except Exception:
+                pass
+            self._initialized = True
 
     async def _seed_defaults(self, conn: DatabaseConnection):
         """Seed default admin account, policies, federated rounds, and cloud topology if not present"""
@@ -1002,9 +1166,9 @@ class DatabaseManager:
             admin_pwd_hash = hash_password("Admin@123456")
             admin_pin_hash = hash_secret_pin("123456")
             await conn.execute(
-                """INSERT INTO users (id, email, password_hash, pin_hash, name, mfa_enabled, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())""",
-                (admin_id, "admin@zerotrust.ai", admin_pwd_hash, admin_pin_hash, "Security Administrator", True)
+                """INSERT INTO users (id, email, password_hash, pin_hash, name, mfa_enabled, role, secure_pin_configured, created_at, updated_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())""",
+                (admin_id, "admin@zerotrust.ai", admin_pwd_hash, admin_pin_hash, "Security Administrator", True, "admin", True)
             )
 
         # Seed standard operator user
@@ -1014,18 +1178,18 @@ class DatabaseManager:
             op_pwd_hash = hash_password("Operator@123456")
             op_pin_hash = hash_secret_pin("654321")
             await conn.execute(
-                """INSERT INTO users (id, email, password_hash, pin_hash, name, mfa_enabled, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())""",
-                (op_id, "operator@zerotrust.ai", op_pwd_hash, op_pin_hash, "Security Operator", False)
+                """INSERT INTO users (id, email, password_hash, pin_hash, name, mfa_enabled, role, secure_pin_configured, created_at, updated_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())""",
+                (op_id, "operator@zerotrust.ai", op_pwd_hash, op_pin_hash, "Security Operator", False, "operator", True)
             )
 
         # 2. Seed Default Policies
         check_policy = await conn.execute("SELECT id FROM trust_policies LIMIT 1")
         if not await check_policy.fetchone():
             await conn.execute("""
-                INSERT INTO trust_policies (name, description, policy_type, priority, enabled, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, ("Default Zero Trust Access Policy", "Baseline adaptive access policy evaluating device trust, behavioral cadence, and anomaly scores.", "adaptive_mfa", 1, True, "system"))
+                INSERT INTO trust_policies (name, description, policy_type, priority, enabled, version, status, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, ("Default Zero Trust Access Policy", "Baseline adaptive access policy evaluating device trust, behavioral cadence, and anomaly scores.", "adaptive_mfa", 1, True, "v2.0.0", "active", "system"))
 
             p_id_res = await conn.execute("SELECT id FROM trust_policies WHERE name = %s", ("Default Zero Trust Access Policy",))
             p_row = await p_id_res.fetchone()
