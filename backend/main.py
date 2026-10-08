@@ -133,6 +133,7 @@ class VerifySecurePinRequest(BaseModel):
     email: EmailStr
     secret_pin: str = Field(..., min_length=4, max_length=8)
     challenge_token: Optional[str] = None
+    challenge_id: Optional[str] = None
 
 class ForgotSecurePinRequest(BaseModel):
     email: EmailStr
@@ -150,6 +151,9 @@ class ChangeSecurePinRequest(BaseModel):
 
 class LoginMfaCompleteRequest(BaseModel):
     email: EmailStr
+    challenge_token: Optional[str] = None
+    challenge_id: Optional[str] = None
+    secret_pin: Optional[str] = None
     device_info: Optional[Dict[str, Any]] = None
     location_info: Optional[Dict[str, Any]] = None
     telemetry: Optional[Dict[str, Any]] = None
@@ -164,8 +168,13 @@ class UserLoginRequest(BaseModel):
 
 class PinVerifyRequest(BaseModel):
     challenge_token: Optional[str] = None
+    challenge_id: Optional[str] = None
+    email: Optional[EmailStr] = None
     session_id: Optional[int] = None
     secret_pin: str = Field(..., min_length=4, max_length=8)
+    device_info: Optional[Dict[str, Any]] = None
+    location_info: Optional[Dict[str, Any]] = None
+    telemetry: Optional[Dict[str, Any]] = None
 
 class PinSetupRequest(BaseModel):
     current_password: str
@@ -223,15 +232,31 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORS Middleware
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+# CORS Middleware (Strict explicit origins - no wildcard credentials)
+_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip() and o.strip() != "*"]
+if not ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in ALLOWED_ORIGINS if o.strip()] or ["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "x-admin-access-key", "x-client-fingerprint", "X-Requested-With"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Enforce defense-in-depth HTTP security headers"""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 @app.on_event("startup")
 async def on_startup():
@@ -812,6 +837,20 @@ async def verify_secure_pin_endpoint(req: VerifySecurePinRequest, request: Reque
         "UPDATE users SET pin_failed_attempts = 0, pin_locked_until = NULL WHERE id = %s",
         (user_id,)
     )
+
+    challenge_id = None
+    if req.challenge_token:
+        try:
+            c_payload = decode_token(req.challenge_token, expected_type="challenge")
+            challenge_id = c_payload.get("cid") or req.challenge_id
+            if challenge_id:
+                await conn.execute(
+                    "UPDATE mfa_challenges SET status = 'VERIFIED' WHERE id = %s AND user_id = %s",
+                    (challenge_id, user_id)
+                )
+        except Exception:
+            pass
+
     await conn.execute(
         """INSERT INTO audit_logs 
            (id, user_id, action_type, status, risk_level, trust_level, ip_address, details, created_at)
@@ -820,24 +859,29 @@ async def verify_secure_pin_endpoint(req: VerifySecurePinRequest, request: Reque
     )
     await conn.commit()
 
-    return {"status": "SUCCESS", "verified": True, "message": "Secure PIN verified successfully."}
+    return {
+        "status": "SUCCESS",
+        "verified": True,
+        "challenge_id": challenge_id,
+        "message": "Secure PIN verified successfully."
+    }
 
 
 @app.post("/api/auth/login", tags=["Authentication"])
 async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConnection = Depends(get_db)):
     """
     Multi-Factor Adaptive Login Endpoint:
-    Validates Email & Password, enforces email verification (via Neon Auth/DB),
-    assesses client device context, and requires 6-digit Secure PIN MFA.
+    Validates Email & Password, enforces email verification, creates single-use server-side
+    MFA challenge in database, assesses client device context, and requires 6-digit Secure PIN MFA.
     """
     email_clean = req.email.strip().lower()
     ip_address = request.client.host if request.client else "127.0.0.1"
     user_agent = request.headers.get("user-agent", "Mozilla/5.0")
 
-    # 1. Fetch user
+    # 1. Fetch user from authoritative database
     res = await conn.execute(
         """SELECT id, password_hash, pin_hash, pin_failed_attempts, pin_locked_until, 
-                  mfa_enabled, mfa_secret, name, secure_pin_configured, email_verified 
+                  mfa_enabled, mfa_secret, name, secure_pin_configured, email_verified, role, is_active 
            FROM users WHERE email = %s""",
         (email_clean,)
     )
@@ -846,9 +890,12 @@ async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConn
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email address or password.")
 
-    user_id, pwd_hash, pin_hash, pin_fails, pin_locked_until, mfa_enabled, mfa_secret, name, pin_configured, email_verified = user
+    user_id, pwd_hash, pin_hash, pin_fails, pin_locked_until, mfa_enabled, mfa_secret, name, pin_configured, email_verified, role, is_active = user
 
-    # 2. Verify password
+    if not is_active:
+        raise HTTPException(status_code=403, detail="Account is disabled. Contact system administrator.")
+
+    # 2. Verify password with bcrypt
     if not verify_password(req.password, pwd_hash):
         await conn.execute(
             """INSERT INTO audit_logs 
@@ -878,9 +925,9 @@ async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConn
             detail="Your email address is not verified yet. Please check your email inbox and click the verification link before logging in."
         )
 
-    # 4. Assess client device context (standard HTTP client context, no biometric fingerprinting)
+    # 4. Assess client device context (genuine client headers, no synthetic telemetry)
     device_info = req.device_info or {"user_agent": user_agent}
-    location_info = req.location_info or {"country": "United States", "city": "San Francisco"}
+    location_info = req.location_info or {}
 
     dev_rec = await device_engine.register_device(user_id, None, device_info)
     is_new_device = dev_rec.get("is_new", False)
@@ -891,23 +938,30 @@ async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConn
     if mfa_enabled:
         initial_risk += 10.0
 
-    # Check if Secret PIN was already supplied directly
-    if req.secret_pin and pin_hash:
-        if verify_secret_pin(req.secret_pin, pin_hash):
-            initial_risk = max(5.0, initial_risk - 20.0)
-        else:
-            raise HTTPException(status_code=401, detail="Incorrect Secret PIN entered.")
+    # 5. Create server-side single-use MFA challenge in mfa_challenges table (expires in 5 minutes)
+    challenge_id = str(uuid.uuid4())
+    expires_at = datetime.utcnow() + timedelta(minutes=5)
+    await conn.execute(
+        """INSERT INTO mfa_challenges 
+           (id, user_id, challenge_type, expires_at, attempt_count, max_attempts, status, created_at)
+           VALUES (%s, %s, 'MFA_SECURE_PIN', %s, 0, 5, 'PENDING', NOW())""",
+        (challenge_id, user_id, expires_at)
+    )
+    await conn.commit()
 
-    # Issue challenge token for Secure PIN MFA
+    # 6. Issue signed short-lived challenge token bound to the database challenge row
     challenge_token = create_challenge_token(
         user_id=user_id,
         email=email_clean,
+        challenge_id=challenge_id,
         challenge_type="MFA_SECURE_PIN",
         risk_score=initial_risk
     )
+
     return {
         "status": "MFA_REQUIRED",
         "challenge_token": challenge_token,
+        "challenge_id": challenge_id,
         "challenge_type": "MFA_SECURE_PIN",
         "requires_pin": True,
         "risk_score": initial_risk,
@@ -922,31 +976,73 @@ async def login_user(req: UserLoginRequest, request: Request, conn: DatabaseConn
 @app.post("/api/auth/login-mfa-complete", tags=["Authentication"])
 async def login_mfa_complete(req: LoginMfaCompleteRequest, request: Request, conn: DatabaseConnection = Depends(get_db)):
     """
-    Final Zero Trust Security Evaluation after MFA factors (Email, Password, Secure PIN) succeed:
-    1. Collects device & session context
-    2. Runs AI Anomaly Detection via ML Isolation Forest
-    3. Calculates dynamic Risk Score & Trust Score
-    4. Evaluates Zero Trust Policy Decision
-    5. Starts Continuous Authentication session & returns signed JWTs
+    Final Zero Trust Security Evaluation after MFA factors succeed:
+    Requires a valid, unconsumed MFA challenge token verified against the database.
+    Direct bypass without challenge verification is strictly rejected with 401.
     """
     email_clean = req.email.strip().lower()
     ip_address = request.client.host if request.client else "127.0.0.1"
     user_agent = request.headers.get("user-agent", "Mozilla/5.0")
 
+    # Strictly require challenge token
+    if not req.challenge_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication failed: Missing MFA challenge token. Direct MFA bypass is prohibited."
+        )
+
+    try:
+        payload = decode_token(req.challenge_token, expected_type="challenge")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge token.")
+
+    token_user_id = payload.get("sub")
+    token_cid = payload.get("cid") or req.challenge_id
+
+    # Verify user existence and active status in database
     res = await conn.execute(
-        "SELECT id, name, mfa_enabled, secure_pin_configured, email_verified FROM users WHERE email = %s",
+        """SELECT id, name, mfa_enabled, secure_pin_configured, email_verified, role, pin_hash, is_active 
+           FROM users WHERE email = %s""",
         (email_clean,)
     )
     user = await res.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="User account not found.")
+    if not user or str(user[0]) != str(token_user_id):
+        raise HTTPException(status_code=401, detail="User account context mismatch.")
 
-    user_id, name, mfa_enabled, pin_configured, email_verified = user
+    user_id, name, mfa_enabled, pin_configured, email_verified, user_role, pin_hash, is_active = user
+    if not is_active:
+        raise HTTPException(status_code=403, detail="Account is disabled.")
+
+    # Authoritative verification of challenge in mfa_challenges table
+    if token_cid:
+        c_res = await conn.execute(
+            """SELECT id, expires_at, attempt_count, max_attempts, consumed_at, status 
+               FROM mfa_challenges WHERE id = %s AND user_id = %s""",
+            (token_cid, user_id)
+        )
+        c_row = await c_res.fetchone()
+        if not c_row:
+            raise HTTPException(status_code=401, detail="MFA challenge record not found in database.")
+
+        c_id, c_exp, c_attempts, c_max_att, c_consumed, c_status = c_row
+
+        if c_consumed and c_status == "VERIFIED":
+            raise HTTPException(status_code=401, detail="MFA challenge has already been used. Please log in again.")
+
+        if c_status != "VERIFIED":
+            if req.secret_pin and pin_hash:
+                if not verify_secret_pin(req.secret_pin, pin_hash):
+                    raise HTTPException(status_code=401, detail="Incorrect Secure PIN.")
+            else:
+                raise HTTPException(status_code=401, detail="MFA challenge has not been verified. Secure PIN required.")
+
+        # Mark challenge as consumed (single-use enforcement)
+        await conn.execute("UPDATE mfa_challenges SET consumed_at = NOW(), status = 'VERIFIED' WHERE id = %s", (c_id,))
 
     device_info = req.device_info or {"user_agent": user_agent}
-    location_info = req.location_info or {"country": "United States", "city": "San Francisco"}
+    location_info = req.location_info or {}
 
-    # Start Continuous Session
+    # Start Continuous Authentication Session
     session_res = await continuous_orchestrator.create_session(
         user_id=user_id,
         device_info=device_info,
@@ -954,10 +1050,11 @@ async def login_mfa_complete(req: LoginMfaCompleteRequest, request: Request, con
         ip_address=ip_address
     )
 
+    # Authoritative role from database
     access_token = create_access_token(
         user_id=user_id,
         email=email_clean,
-        role="admin" if "admin" in email_clean else "operator",
+        role=user_role or "operator",
         session_id=str(session_res["session_id"])
     )
     refresh_token = create_refresh_token(user_id=user_id, session_id=str(session_res["session_id"]))
@@ -987,6 +1084,7 @@ async def login_mfa_complete(req: LoginMfaCompleteRequest, request: Request, con
             "id": user_id,
             "email": email_clean,
             "name": name or "Security Operator",
+            "role": user_role or "operator",
             "mfa_enabled": bool(mfa_enabled),
             "pin_configured": bool(pin_configured),
             "email_verified": bool(email_verified)
@@ -999,7 +1097,12 @@ async def login_mfa_complete(req: LoginMfaCompleteRequest, request: Request, con
 @app.post("/api/auth/mfa/challenge-verify", tags=["Authentication"])
 @app.post("/api/auth/verify-pin", tags=["Authentication"])
 async def verify_pin_challenge(req: PinVerifyRequest, request: Request, conn: DatabaseConnection = Depends(get_db)):
-    """Verify Secret PIN during login MFA challenge or step-up authentication"""
+    """
+    Verify Secret PIN during login MFA challenge or step-up authentication:
+    - Validates against server-side mfa_challenges record (expiry, attempts, single-use)
+    - Enforces brute-force lockout and updates failed attempt tracking
+    - Issues authenticated JWT tokens with authoritative role from database
+    """
     ip_address = request.client.host if request.client else "127.0.0.1"
 
     if not req.challenge_token:
@@ -1008,24 +1111,92 @@ async def verify_pin_challenge(req: PinVerifyRequest, request: Request, conn: Da
     payload = decode_token(req.challenge_token, expected_type="challenge")
     user_id = payload.get("sub")
     email = payload.get("email", "")
+    challenge_id = payload.get("cid") or req.challenge_id
+
+    # Validate challenge in database if challenge_id is present
+    if challenge_id:
+        c_res = await conn.execute(
+            """SELECT id, expires_at, attempt_count, max_attempts, consumed_at, status 
+               FROM mfa_challenges WHERE id = %s AND user_id = %s""",
+            (challenge_id, user_id)
+        )
+        c_row = await c_res.fetchone()
+        if not c_row:
+            raise HTTPException(status_code=400, detail="Invalid MFA challenge.")
+
+        c_id, c_exp, c_attempts, c_max_att, c_consumed, c_status = c_row
+
+        if c_consumed or c_status != "PENDING":
+            raise HTTPException(status_code=400, detail="MFA challenge has already been used or invalidated.")
+
+        # Expiry check
+        if isinstance(c_exp, str):
+            try:
+                c_exp_dt = datetime.fromisoformat(c_exp.replace("Z", "+00:00"))
+            except Exception:
+                c_exp_dt = None
+        else:
+            c_exp_dt = c_exp
+
+        if c_exp_dt and (c_exp_dt < datetime.utcnow().astimezone() if c_exp_dt.tzinfo else c_exp_dt < datetime.utcnow()):
+            await conn.execute("UPDATE mfa_challenges SET status = 'EXPIRED' WHERE id = %s", (c_id,))
+            await conn.commit()
+            raise HTTPException(status_code=400, detail="MFA challenge expired. Please authenticate again.")
+
+        if c_attempts >= c_max_att:
+            await conn.execute("UPDATE mfa_challenges SET status = 'FAILED' WHERE id = %s", (c_id,))
+            await conn.commit()
+            raise HTTPException(status_code=403, detail="Maximum PIN challenge attempts exceeded.")
 
     res = await conn.execute(
-        "SELECT pin_hash, pin_failed_attempts, pin_locked_until, name, mfa_enabled FROM users WHERE id = %s",
+        """SELECT pin_hash, pin_failed_attempts, pin_locked_until, name, mfa_enabled, role, is_active 
+           FROM users WHERE id = %s""",
         (user_id,)
     )
     user_row = await res.fetchone()
     if not user_row:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="User account not found.")
 
-    pin_hash, fails, locked_until, name, mfa_enabled = user_row
+    pin_hash, fails, locked_until, name, mfa_enabled, user_role, is_active = user_row
+
+    if not is_active:
+        raise HTTPException(status_code=403, detail="Account is disabled.")
 
     if not pin_hash:
         raise HTTPException(status_code=400, detail="Secret PIN is not configured for this account.")
 
+    # Check lockout
+    if locked_until:
+        if isinstance(locked_until, str):
+            try:
+                locked_dt = datetime.fromisoformat(locked_until.replace("Z", "+00:00"))
+            except Exception:
+                locked_dt = None
+        else:
+            locked_dt = locked_until
+
+        if locked_dt and (locked_dt > datetime.utcnow().astimezone() if locked_dt.tzinfo else locked_dt > datetime.utcnow()):
+            raise HTTPException(
+                status_code=403,
+                detail="Account temporarily restricted due to repeated incorrect PIN attempts."
+            )
+
     # Validate PIN
     if not verify_secret_pin(req.secret_pin, pin_hash):
         new_fails = int(fails or 0) + 1
-        await conn.execute("UPDATE users SET pin_failed_attempts = %s WHERE id = %s", (new_fails, user_id))
+        if challenge_id:
+            await conn.execute("UPDATE mfa_challenges SET attempt_count = attempt_count + 1 WHERE id = %s", (challenge_id,))
+        
+        lockout_time = None
+        if new_fails >= 5:
+            lockout_time = datetime.utcnow() + timedelta(minutes=15)
+            await conn.execute(
+                "UPDATE users SET pin_failed_attempts = %s, pin_locked_until = %s WHERE id = %s",
+                (new_fails, lockout_time, user_id)
+            )
+        else:
+            await conn.execute("UPDATE users SET pin_failed_attempts = %s WHERE id = %s", (new_fails, user_id))
+
         await conn.execute(
             """INSERT INTO audit_logs 
                (id, user_id, action_type, status, risk_level, trust_level, ip_address, created_at)
@@ -1033,23 +1204,28 @@ async def verify_pin_challenge(req: PinVerifyRequest, request: Request, conn: Da
             (str(uuid.uuid4()), user_id, ip_address)
         )
         await conn.commit()
+
+        if new_fails >= 5:
+            raise HTTPException(status_code=403, detail="Too many incorrect PIN attempts. Account locked for 15 minutes.")
         raise HTTPException(status_code=401, detail=f"Incorrect Secret PIN. Attempt {new_fails}/5.")
 
-    # Success: Reset failed attempts
-    await conn.execute("UPDATE users SET pin_failed_attempts = 0, last_login = NOW() WHERE id = %s", (user_id,))
+    # Success: mark challenge consumed and reset failed attempts
+    if challenge_id:
+        await conn.execute("UPDATE mfa_challenges SET consumed_at = NOW(), status = 'VERIFIED' WHERE id = %s", (challenge_id,))
+    await conn.execute("UPDATE users SET pin_failed_attempts = 0, pin_locked_until = NULL, last_login = NOW() WHERE id = %s", (user_id,))
 
     # Create continuous session
     session_res = await continuous_orchestrator.create_session(
         user_id=user_id,
-        device_info={"user_agent": request.headers.get("user-agent", "")},
-        location_info={"country": "United States", "city": "San Francisco"},
+        device_info=req.device_info or {"user_agent": request.headers.get("user-agent", "")},
+        location_info=req.location_info or {},
         ip_address=ip_address
     )
 
     access_token = create_access_token(
         user_id=user_id,
         email=email,
-        role="admin" if "admin" in email else "operator",
+        role=user_role or "operator",
         session_id=str(session_res["session_id"])
     )
     refresh_token = create_refresh_token(user_id=user_id, session_id=str(session_res["session_id"]))
@@ -1072,11 +1248,12 @@ async def verify_pin_challenge(req: PinVerifyRequest, request: Request, conn: Da
             "id": user_id,
             "email": email,
             "name": name,
+            "role": user_role or "operator",
             "mfa_enabled": bool(mfa_enabled),
             "pin_configured": True
         },
-        "trust_score": 85.0,
-        "risk_score": 10.0
+        "trust_score": session_res["trust_score"],
+        "risk_score": session_res["risk_score"]
     }
 
 
@@ -1370,27 +1547,32 @@ async def get_user_trust_score(
     current_user: Dict[str, Any] = Depends(get_current_user),
     conn: DatabaseConnection = Depends(get_db)
 ):
-    """Get live Trust Score and risk factor breakdown for a user"""
+    """Get live Trust Score and risk factor breakdown for a user with strict ownership enforcement"""
+    ensure_owner(user_id, current_user)
     res = await conn.execute(
-        "SELECT trust_score, risk_score FROM user_sessions WHERE user_id = %s ORDER BY id DESC LIMIT 1",
-        (user_id,)
+        "SELECT trust_score, risk_score FROM user_sessions WHERE CAST(user_id AS TEXT) = %s ORDER BY id DESC LIMIT 1",
+        (str(user_id),)
     )
     row = await res.fetchone()
-    trust_val = float(row[0]) if row and row[0] is not None else 78.5
-    risk_val = float(row[1]) if row and row[1] is not None else 18.0
+    if not row or row[0] is None:
+        return {
+            "user_id": user_id,
+            "status": "NO_DATA_AVAILABLE",
+            "score": None,
+            "trust_score": None,
+            "risk_score": None,
+            "message": "No session telemetry or trust score recorded yet."
+        }
+
+    trust_val = float(row[0])
+    risk_val = float(row[1]) if row[1] is not None else 0.0
 
     return {
         "user_id": user_id,
         "score": trust_val,
         "trust_score": trust_val,
         "risk_score": risk_val,
-        "confidence_score": 92.4,
-        "factors": {
-            "device_trust": 85.0,
-            "behavior_consistency": 80.0,
-            "session_duration": 90.0,
-            "pin_authenticated": 95.0
-        },
+        "confidence_score": round(max(50.0, 100.0 - risk_val), 1),
         "updated_at": datetime.utcnow().isoformat()
     }
 
@@ -1399,58 +1581,48 @@ async def get_user_trust_score(
 @app.post("/api/trust/recalculate", tags=["Zero Trust"])
 async def recalculate_security(
     req: SecurityRecalculateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
     conn: DatabaseConnection = Depends(get_db)
 ):
     """
-    Recalculate real dynamic security state:
-    1. Retrieve latest user & session context from database
-    2. Analyze behavioral signals & run AI/ML anomaly detection
-    3. Calculate real risk and trust scores via TrustRiskEngine
-    4. Evaluate Zero Trust policy
-    5. Generate dual-layer XAI explanation
-    6. Persist updated scores in database and write audit log
-    7. Return fresh updated security state
+    Recalculate real dynamic security state with authentication and ownership verification:
+    1. Authenticates current user and resolves authorized user and session context
+    2. Analyzes genuine behavioral signals and runs ML anomaly detection
+    3. Calculates real risk and trust scores via TrustRiskEngine
+    4. Evaluates Zero Trust policy and generates XAI explanation
+    5. Persists updated scores and records audit log
     """
-    uid = req.user_id
-    if not uid:
-        row = await (await conn.execute("SELECT user_id FROM user_sessions WHERE is_active = TRUE ORDER BY id DESC LIMIT 1")).fetchone()
-        if row:
-            uid = str(row[0])
-        else:
-            u_row = await (await conn.execute("SELECT id FROM users ORDER BY created_at DESC LIMIT 1")).fetchone()
-            uid = str(u_row[0]) if u_row else "default-user"
+    # Enforce caller authorization
+    uid = str(current_user["id"])
+    if current_user.get("role") == "admin" and req.user_id:
+        uid = str(req.user_id)
+    else:
+        ensure_owner(uid, current_user)
 
     sid = req.session_id
     if not sid:
-        s_row = await (await conn.execute("SELECT id FROM user_sessions WHERE user_id = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1", (uid,))).fetchone()
+        s_row = await (await conn.execute(
+            "SELECT id FROM user_sessions WHERE CAST(user_id AS TEXT) = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1",
+            (uid,)
+        )).fetchone()
         if s_row:
             sid = int(s_row[0])
         else:
             sid_res = await continuous_orchestrator.create_session(uid, "127.0.0.1", "Browser Client")
             sid = int(sid_res.get("session_id", 1))
+    else:
+        # Verify caller owns session unless admin
+        if current_user.get("role") != "admin":
+            s_chk = await conn.execute(
+                "SELECT id FROM user_sessions WHERE id = %s AND CAST(user_id AS TEXT) = %s",
+                (sid, uid)
+            )
+            if not await s_chk.fetchone():
+                raise HTTPException(status_code=403, detail="Access denied to requested session.")
 
-    telemetry = req.telemetry or {
-        "keystroke_speed": 3.6,
-        "keystroke_variance": 0.08,
-        "mouse_speed": 460.0,
-        "mouse_distance": 320.0,
-        "click_count": 8,
-        "scroll_count": 4,
-        "idle_seconds": 1,
-        "session_duration_minutes": 5.0
-    }
-    device_info = req.device_info or {
-        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "screen_width": 1920,
-        "screen_height": 1080,
-        "timezone": "UTC",
-        "language": "en"
-    }
-    location_info = req.location_info or {
-        "country": "United States",
-        "city": "San Francisco",
-        "ip_address": "127.0.0.1"
-    }
+    telemetry = req.telemetry or {}
+    device_info = req.device_info or {}
+    location_info = req.location_info or {}
 
     result = await continuous_orchestrator.process_continuous_telemetry(
         user_id=uid,
@@ -1458,7 +1630,7 @@ async def recalculate_security(
         telemetry=telemetry,
         device_info=device_info,
         location_info=location_info,
-        ip_address=location_info.get("ip_address", "127.0.0.1")
+        ip_address=location_info.get("ip_address") or "127.0.0.1"
     )
 
     risk_score = float(result.get("risk_score", 18.0))
@@ -1861,22 +2033,19 @@ async def delete_admin_user(
 async def get_audit_logs(
     user_id: Optional[str] = None,
     limit: int = 50,
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
+    current_user: Dict[str, Any] = Depends(get_current_user),
     conn: DatabaseConnection = Depends(get_db)
 ):
     """Retrieve security audit logs with strict role authorization and user isolation"""
-    caller_id = None
-    is_admin = False
-    if credentials and credentials.credentials:
-        try:
-            payload = decode_token(credentials.credentials, expected_type="access")
-            caller_id = str(payload.get("sub") or payload.get("id") or "")
-            is_admin = payload.get("role") == "admin"
-        except Exception:
-            pass
+    caller_id = str(current_user["id"])
+    is_admin = current_user.get("role") == "admin"
 
-    target_user_id = user_id
-    if not is_admin and caller_id:
+    if user_id:
+        ensure_owner(user_id, current_user)
+        target_user_id = user_id
+    elif is_admin:
+        target_user_id = None
+    else:
         target_user_id = caller_id
 
     if target_user_id:
@@ -1957,8 +2126,8 @@ async def get_feature_importance(data: Dict[str, Any]):
 
 @app.post("/api/federated/rounds/simulation/run", tags=["Federated Learning"])
 @app.post("/api/federated/rounds", tags=["Federated Learning"])
-async def trigger_federated_round():
-    """Trigger a new 3-client simulated federated training round with FedAvg aggregation"""
+async def trigger_federated_round(admin_user: Dict[str, Any] = Depends(get_current_admin_user)):
+    """Trigger a new simulated federated training round with FedAvg aggregation (Admin Only)"""
     return await federated_service.run_simulation_round()
 
 
@@ -2022,8 +2191,11 @@ async def verify_cloud_resource_access(
 
 
 @app.post("/api/cloud/{cloud_type}/failover", tags=["Hybrid Cloud"])
-async def simulate_cloud_failover(cloud_type: str):
-    """Simulate automatic multi-cloud failover"""
+async def simulate_cloud_failover(
+    cloud_type: str,
+    admin_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Simulate automatic multi-cloud failover (Admin Only)"""
     return await hybrid_cloud_service.simulate_failover(cloud_type)
 
 # ============================================================================
@@ -2038,8 +2210,12 @@ async def get_active_policies():
 
 
 @app.post("/api/policies", tags=["Zero Trust Policies"])
-async def create_policy(req: PolicyCreateRequest, conn: DatabaseConnection = Depends(get_db)):
-    """Create a new Zero Trust policy"""
+async def create_policy(
+    req: PolicyCreateRequest,
+    admin_user: Dict[str, Any] = Depends(get_current_admin_user),
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """Create a new Zero Trust policy (Admin Only)"""
     await conn.execute(
         """INSERT INTO trust_policies (name, description, policy_type, priority, enabled, created_at)
            VALUES (%s, %s, %s, %s, 1, NOW())""",
@@ -2253,10 +2429,14 @@ async def revoke_user_session(
         raise HTTPException(status_code=400, detail="session_id is required")
     
     uid = str(current_user["id"])
-    if current_user.get("role") == "admin":
-        await conn.execute("UPDATE user_sessions SET is_active = FALSE, session_status = 'REVOKED' WHERE id = %s", (session_id,))
-    else:
-        await conn.execute("UPDATE user_sessions SET is_active = FALSE, session_status = 'REVOKED' WHERE id = %s AND CAST(user_id AS TEXT) = %s", (session_id, uid))
+    s_check = await conn.execute("SELECT id, user_id FROM user_sessions WHERE id = %s", (session_id,))
+    s_row = await s_check.fetchone()
+    if not s_row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if str(s_row[1]) != uid and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this session")
+
+    await conn.execute("UPDATE user_sessions SET is_active = FALSE, session_status = 'REVOKED' WHERE id = %s", (session_id,))
     
     u_chk = await conn.execute("SELECT id FROM users WHERE CAST(id AS TEXT) = %s", (uid,))
     valid_fk = (await u_chk.fetchone())
@@ -2335,7 +2515,16 @@ async def lock_session(
     sid = req.session_id or current_user.get("session_id")
     if not sid:
         s_row = await (await conn.execute("SELECT id FROM user_sessions WHERE CAST(user_id AS TEXT) = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1", (uid,))).fetchone()
-        sid = s_row[0] if s_row else 1
+        if not s_row:
+            raise HTTPException(status_code=404, detail="No active session found")
+        sid = s_row[0]
+
+    s_check = await conn.execute("SELECT id, user_id FROM user_sessions WHERE id = %s", (sid,))
+    s_row = await s_check.fetchone()
+    if not s_row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if str(s_row[1]) != uid and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this session")
 
     await conn.execute(
         "UPDATE user_sessions SET session_status = 'LOCKED', locked_at = NOW() WHERE id = %s",
@@ -2370,7 +2559,16 @@ async def unlock_session(
     sid = req.session_id or current_user.get("session_id")
     if not sid:
         s_row = await (await conn.execute("SELECT id FROM user_sessions WHERE CAST(user_id AS TEXT) = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1", (uid,))).fetchone()
-        sid = s_row[0] if s_row else 1
+        if not s_row:
+            raise HTTPException(status_code=404, detail="No session found")
+        sid = s_row[0]
+
+    s_check = await conn.execute("SELECT id, user_id FROM user_sessions WHERE id = %s", (sid,))
+    s_row = await s_check.fetchone()
+    if not s_row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if str(s_row[1]) != uid and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden: You do not own this session")
 
     u_res = await conn.execute("SELECT pin_hash, password_hash, id FROM users WHERE CAST(id AS TEXT) = %s", (uid,))
     u_row = await u_res.fetchone()
@@ -3096,12 +3294,21 @@ async def get_policy_audit_stats(
 @app.get("/api/threats/intelligence", tags=["Threat Intelligence"])
 async def get_threat_intelligence(
     time_range: str = "1d",
+    current_user: Dict[str, Any] = Depends(get_current_user),
     conn: DatabaseConnection = Depends(get_db)
 ):
-    res = await conn.execute(
-        """SELECT id, indicator_type, severity, user_id, source_ip, details, status, detected_at, resolved_at
-           FROM threat_indicators ORDER BY detected_at DESC LIMIT 50"""
-    )
+    if current_user.get("role") == "admin":
+        res = await conn.execute(
+            """SELECT id, indicator_type, severity, user_id, source_ip, details, status, detected_at, resolved_at
+               FROM threat_indicators ORDER BY detected_at DESC LIMIT 50"""
+        )
+    else:
+        res = await conn.execute(
+            """SELECT id, indicator_type, severity, user_id, source_ip, details, status, detected_at, resolved_at
+               FROM threat_indicators WHERE (user_id = %s OR user_id IS NULL OR user_id = 'unauthenticated') 
+               ORDER BY detected_at DESC LIMIT 50""",
+            (str(current_user["id"]),)
+        )
     rows = await res.fetchall()
 
     indicators = [
@@ -3186,6 +3393,8 @@ async def run_simulation_scenario(
     current_user: Dict[str, Any] = Depends(get_current_user),
     conn: DatabaseConnection = Depends(get_db)
 ):
+    if req.user_id:
+        ensure_owner(req.user_id, current_user)
     uid = req.user_id or current_user["id"]
     scenario = req.scenario.upper().strip()
 

@@ -44,6 +44,7 @@ interface AuthState {
   user: User | null
   accessToken: string | null
   sessionId: number | null
+  challengeToken: string | null
   isLoading: boolean
   isInitialized: boolean
   error: string | null
@@ -58,8 +59,8 @@ interface AuthState {
 
   // Multi-Factor Authentication Progression
   login: (email: string, password: string, secretPin?: string, totpCode?: string) => Promise<LoginResult>
-  verifySecurePin: (email: string, secretPin: string) => Promise<boolean>
-  loginMfaComplete: (email: string) => Promise<LoginResult>
+  verifySecurePin: (email: string, secretPin: string, challengeToken?: string) => Promise<boolean>
+  loginMfaComplete: (email: string, challengeToken?: string, secretPin?: string) => Promise<LoginResult>
   verifyPinChallenge: (challengeToken: string, secretPin: string) => Promise<void>
 
   // Recovery & Factor Management
@@ -101,6 +102,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: null,
   sessionId: null,
+  challengeToken: null,
   isLoading: false,
   isInitialized: false,
   error: null,
@@ -220,20 +222,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  verifySecurePin: async (email: string, secretPin: string) => {
+  verifySecurePin: async (email: string, secretPin: string, challengeToken?: string) => {
+    const cToken = challengeToken || get().challengeToken || (typeof window !== 'undefined' ? sessionStorage.getItem('azt_challenge_token') : null)
     const res = await fetch('/api/auth/verify-secure-pin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), secret_pin: secretPin.trim() })
+      body: JSON.stringify({
+        email: email.trim(),
+        secret_pin: secretPin.trim(),
+        challenge_token: cToken || undefined
+      })
     })
     const data = await readApiResponse<Record<string, any>>(res)
     if (!res.ok) throw new Error(data.detail || 'Incorrect Secure PIN')
     return true
   },
 
-  loginMfaComplete: async (email: string): Promise<LoginResult> => {
+  loginMfaComplete: async (email: string, challengeToken?: string, secretPin?: string): Promise<LoginResult> => {
     set({ isLoading: true, error: null })
     try {
+      const cToken = challengeToken || get().challengeToken || (typeof window !== 'undefined' ? sessionStorage.getItem('azt_challenge_token') : null)
       const deviceInfo = typeof window !== 'undefined' ? {
         user_agent: navigator.userAgent,
         screen_width: window.screen.width,
@@ -248,6 +256,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: email.trim(),
+          challenge_token: cToken || undefined,
+          secret_pin: secretPin ? secretPin.trim() : undefined,
           device_info: deviceInfo
         })
       })
@@ -264,6 +274,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (data.refresh_token) localStorage.setItem(REFRESH_KEY, data.refresh_token)
         localStorage.setItem(USER_KEY, JSON.stringify(user))
         if (sessionId) localStorage.setItem(SESSION_KEY, String(sessionId))
+        sessionStorage.removeItem('azt_challenge_token')
         document.cookie = `access_token=${token}; path=/; max-age=3600; SameSite=Lax`
       }
 
@@ -271,6 +282,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         user,
         accessToken: token,
         sessionId: sessionId || 1,
+        challengeToken: null,
         isLoading: false,
         isInitialized: true,
         error: null
@@ -316,7 +328,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       if (data.status === 'MFA_REQUIRED') {
-        set({ isLoading: false })
+        const cToken = data.challenge_token || null
+        if (typeof window !== 'undefined' && cToken) {
+          sessionStorage.setItem('azt_challenge_token', cToken)
+        }
+        set({ isLoading: false, challengeToken: cToken })
         return data as LoginResult
       }
 

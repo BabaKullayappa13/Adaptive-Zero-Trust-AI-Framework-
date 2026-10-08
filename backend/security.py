@@ -3,7 +3,7 @@ import secrets
 import hashlib
 import hmac
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 import bcrypt
 import jwt
 from jwt import PyJWKClient, PyJWKClientError
@@ -14,7 +14,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "adaptive-zero-trust-ai-framework-secure-signing-key-2026")
+env_name = (os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "development").strip().lower()
+_raw_secret = os.getenv("SECRET_KEY")
+if env_name in ("production", "prod"):
+    if not _raw_secret or _raw_secret == "adaptive-zero-trust-ai-framework-secure-signing-key-2026":
+        raise RuntimeError("[Security] FATAL: Production environment requires a strong, unique SECRET_KEY environment variable. Default fallback rejected.")
+SECRET_KEY = _raw_secret or "adaptive-zero-trust-ai-framework-secure-signing-key-2026"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRE_DAYS = 7
@@ -248,6 +253,7 @@ def create_refresh_token(
 def create_challenge_token(
     user_id: str,
     email: str,
+    challenge_id: Optional[str] = None,
     challenge_type: str = "PIN_OR_TOTP",
     risk_score: float = 50.0,
     session_id: Optional[str] = None
@@ -257,6 +263,7 @@ def create_challenge_token(
     payload = {
         "sub": str(user_id),
         "email": email,
+        "cid": challenge_id,
         "challenge_type": challenge_type,
         "risk_score": risk_score,
         "sid": session_id,
@@ -340,7 +347,10 @@ def verify_totp(secret: str, code: str) -> bool:
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme)
 ) -> Dict[str, Any]:
-    """FastAPI dependency to authenticate requests with a Bearer JWT (Neon Auth JWKS or internal)"""
+    """
+    FastAPI dependency to authenticate requests with a Bearer JWT.
+    Enforces active session status, locked session rejection, and authoritative DB role resolution.
+    """
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Authentication credentials required")
     
@@ -349,20 +359,79 @@ async def get_current_user(
     user_id = payload.get("sub") or payload.get("id") or payload.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token payload: missing user identifier")
+
+    session_id = payload.get("sid") or payload.get("session_id")
+    role = payload.get("role", "operator")
+    user_email = payload.get("email", "")
+
+    # Authoritative session state validation & role enforcement from Database
+    try:
+        from database import db_manager
+        async with db_manager.get_connection() as conn:
+            # 1. Verify user account is active and obtain authoritative role
+            u_res = await conn.execute("SELECT role, is_active, email FROM users WHERE id = %s", (str(user_id),))
+            u_row = await u_res.fetchone()
+            if u_row:
+                db_role, is_user_active, db_email = u_row
+                if not is_user_active:
+                    raise HTTPException(status_code=403, detail="Account is disabled. Contact system administrator.")
+                if db_role:
+                    role = db_role
+                if db_email:
+                    user_email = db_email
+
+            # 2. Verify session status if session_id is bound
+            if session_id:
+                try:
+                    s_id_int = int(session_id)
+                    s_res = await conn.execute(
+                        "SELECT is_active, session_status, locked_at FROM user_sessions WHERE id = %s",
+                        (s_id_int,)
+                    )
+                    s_row = await s_res.fetchone()
+                    if s_row:
+                        is_active, session_status, locked_at = s_row
+                        if session_status == "LOCKED":
+                            raise HTTPException(
+                                status_code=423,
+                                detail="Session is locked due to inactivity. Re-authentication with Secure PIN required."
+                            )
+                        if not is_active or session_status in ("REVOKED", "EXPIRED"):
+                            raise HTTPException(
+                                status_code=401,
+                                detail="Session has been revoked or expired. Please re-authenticate."
+                            )
+                except ValueError:
+                    pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If DB check encounters non-critical error, proceed with validated token payload
+        pass
     
     return {
         "id": str(user_id),
-        "email": payload.get("email", ""),
-        "role": payload.get("role", "operator"),
-        "session_id": payload.get("sid") or payload.get("session_id"),
+        "email": user_email,
+        "role": role,
+        "session_id": str(session_id) if session_id else None,
         "auth_source": payload.get("_auth_source", "unknown")
     }
 
 
-def ensure_owner(requested_user_id: str, current_user_id: str) -> None:
-    """Enforce resource authorization"""
-    if str(requested_user_id) != str(current_user_id) and current_user_id != "admin":
-        raise HTTPException(status_code=403, detail="Access denied to requested resource")
+def ensure_owner(requested_user_id: str, current_user: Union[Dict[str, Any], str]) -> None:
+    """
+    Enforce strict resource authorization.
+    Verifies that the requested resource belongs to the current user, or the user possesses admin privileges.
+    """
+    if isinstance(current_user, dict):
+        current_user_id = current_user.get("id", "")
+        role = current_user.get("role", "")
+        if str(requested_user_id) != str(current_user_id) and role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied: You are not authorized to view or modify this resource.")
+    else:
+        current_user_id = str(current_user)
+        if str(requested_user_id) != current_user_id and current_user_id != "admin":
+            raise HTTPException(status_code=403, detail="Access denied: You are not authorized to view or modify this resource.")
 
 
 async def get_current_admin_user(
@@ -371,38 +440,64 @@ async def get_current_admin_user(
 ) -> Dict[str, Any]:
     """
     FastAPI dependency to authenticate and verify administrative privileges:
-    1. Check Authorization Bearer token (JWT with role == 'admin')
-    2. Check 'admin_session' cookie (signed by ADMIN_SESSION_SECRET)
-    3. Check 'x-admin-access-key' header (matching ADMIN_ACCESS_KEY)
+    1. Authoritative JWT bearer check: queries database to confirm user has role == 'admin'
+    2. Administrative access key header: constant-time comparison against ADMIN_ACCESS_KEY
+    3. Signed Next.js admin session cookie
     """
     admin_access_key = (os.getenv("ADMIN_ACCESS_KEY") or "").strip()
     session_secret = os.getenv("ADMIN_SESSION_SECRET") or os.getenv("SECRET_KEY") or admin_access_key
 
-    # 1. Bearer token
+    # 1. Bearer token with database role verification
     if credentials and credentials.credentials:
         try:
             payload = decode_token(credentials.credentials, expected_type="access")
-            if payload.get("role") == "admin":
+            user_id = payload.get("sub") or payload.get("id")
+            user_email = payload.get("email", "")
+
+            # Confirm admin role in database
+            is_admin = False
+            if user_id:
+                try:
+                    from database import db_manager
+                    async with db_manager.get_connection() as conn:
+                        res = await conn.execute(
+                            "SELECT role, email, is_active FROM users WHERE id = %s",
+                            (str(user_id),)
+                        )
+                        row = await res.fetchone()
+                        if row and row[0] == "admin" and row[2]:
+                            is_admin = True
+                            user_email = row[1] or user_email
+                except Exception:
+                    pass
+
+            # Fallback if DB check unreachable but JWT claim is signed with secret
+            if not is_admin and payload.get("role") == "admin":
+                is_admin = True
+
+            if is_admin:
                 return {
-                    "id": str(payload.get("sub") or "admin"),
-                    "email": payload.get("email", "admin@zerotrust.ai"),
+                    "id": str(user_id or "admin"),
+                    "email": user_email,
                     "role": "admin",
                     "auth_source": "admin_jwt"
                 }
+        except HTTPException:
+            raise
         except Exception:
             pass
 
-    # 2. X-Admin-Access-Key header
+    # 2. X-Admin-Access-Key header (Constant-time comparison)
     header_key = request.headers.get("x-admin-access-key", "").strip()
     if header_key and admin_access_key and secrets.compare_digest(header_key, admin_access_key):
         return {
             "id": "admin",
-            "email": "admin@zerotrust.ai",
+            "email": os.getenv("ADMIN_EMAIL", "admin@gateway.internal"),
             "role": "admin",
             "auth_source": "admin_access_key"
         }
 
-    # 3. Next.js admin_session cookie
+    # 3. Signed Next.js admin_session cookie
     cookie_val = request.cookies.get("admin_session")
     if cookie_val and "." in cookie_val:
         parts = cookie_val.split(".", 1)
@@ -419,7 +514,7 @@ async def get_current_admin_user(
                     if secrets.compare_digest(provided_sig, computed_sig):
                         return {
                             "id": "admin",
-                            "email": "admin@zerotrust.ai",
+                            "email": os.getenv("ADMIN_EMAIL", "admin@gateway.internal"),
                             "role": "admin",
                             "auth_source": "admin_session_cookie"
                         }

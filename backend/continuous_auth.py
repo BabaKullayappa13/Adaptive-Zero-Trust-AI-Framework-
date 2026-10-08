@@ -53,11 +53,11 @@ class ContinuousAuthenticationOrchestrator:
                     trust_score, risk_score, is_active, step_up_required, created_at, last_activity)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, NOW(), NOW())""",
                 (user_id, session_token, device_id, ip_address,
-                 location_info.get("country", "United States"),
-                 location_info.get("state", "California"),
-                 location_info.get("city", "San Francisco"),
-                 location_info.get("latitude", 37.7749),
-                 location_info.get("longitude", -122.4194),
+                 location_info.get("country"),
+                 location_info.get("state"),
+                 location_info.get("city"),
+                 location_info.get("latitude"),
+                 location_info.get("longitude"),
                  initial_trust, initial_risk)
             )
 
@@ -78,16 +78,16 @@ class ContinuousAuthenticationOrchestrator:
             )
             await conn.commit()
 
-        # Record location
+        # Record genuine location telemetry
         await self.location.record_location(
             user_id=user_id,
             session_id=session_id,
             ip_address=ip_address,
-            country=location_info.get("country", "United States"),
-            state_region=location_info.get("state", "California"),
-            city=location_info.get("city", "San Francisco"),
-            latitude=location_info.get("latitude", 37.7749),
-            longitude=location_info.get("longitude", -122.4194),
+            country=location_info.get("country"),
+            state_region=location_info.get("state"),
+            city=location_info.get("city"),
+            latitude=location_info.get("latitude"),
+            longitude=location_info.get("longitude"),
             is_vpn=location_info.get("vpn_detected", False)
         )
 
@@ -159,7 +159,8 @@ class ContinuousAuthenticationOrchestrator:
                     net_risk = float(threat_res.get("risk_score", 0.0))
                     ai_anomaly_score = max(ai_anomaly_score, net_risk)
             except Exception as e:
-                print(f"[ContinuousAuth] ML prediction error: {e}")
+                print(f"[ContinuousAuth] ML prediction error (failing secure): {e}")
+                ai_anomaly_score = 85.0
 
         # 4. Prepare factors for dynamic trust & risk engines
         risk_factors = {

@@ -117,7 +117,7 @@ export default function LoginPage() {
       try {
         setEvalProgress(100)
         setEvalStatus('Access Granted - Zero Trust Continuous Session Active')
-        await loginMfaComplete(email.trim())
+        await loginMfaComplete(email.trim(), undefined, secretPin.trim())
         setTimeout(() => {
           router.replace('/dashboard')
         }, 800)

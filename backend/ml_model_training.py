@@ -221,13 +221,14 @@ class MLModelTrainer:
                 "model_version": "GradientBoosting-IsolationForest-Hybrid"
             }
         except Exception as e:
-            print(f"[MLModelTrainer] Prediction error: {e}")
+            print(f"[MLModelTrainer] Prediction error (failing secure): {e}")
             return {
-                "is_anomaly": False,
-                "anomaly_score": 10.0,
-                "raw_score": -0.4,
-                "confidence": 75.0,
-                "model_version": "IsolationForest-fallback"
+                "is_anomaly": True,
+                "anomaly_score": 85.0,
+                "raw_score": -1.0,
+                "confidence": 0.0,
+                "model_status": "MODEL_UNAVAILABLE",
+                "model_version": "FailSecure-Default"
             }
 
     def predict_network_threat(self, flow_features: np.ndarray) -> Dict[str, Any]:
@@ -238,10 +239,11 @@ class MLModelTrainer:
 
             if self.network_model is None or self.network_scaler is None or self.network_rfe is None:
                 return {
-                    "threat_detected": False,
-                    "threat_probability": 0.05,
-                    "risk_score": 5.0,
-                    "model_used": "fallback"
+                    "threat_detected": True,
+                    "threat_probability": 0.85,
+                    "risk_score": 85.0,
+                    "model_status": "MODEL_UNAVAILABLE",
+                    "model_used": "fail_secure_default"
                 }
 
             if flow_features.ndim == 1:
@@ -269,12 +271,13 @@ class MLModelTrainer:
                 "model_used": "GradientBoosting (CICIDS2017)"
             }
         except Exception as e:
-            print(f"[MLModelTrainer] Network threat prediction error: {e}")
+            print(f"[MLModelTrainer] Network threat prediction error (failing secure): {e}")
             return {
-                "threat_detected": False,
-                "threat_probability": 0.05,
-                "risk_score": 5.0,
-                "model_used": "fallback"
+                "threat_detected": True,
+                "threat_probability": 0.85,
+                "risk_score": 85.0,
+                "model_status": "MODEL_UNAVAILABLE",
+                "model_used": "fail_secure_default"
             }
 
     def get_evaluation_metrics(self) -> Dict[str, Any]:

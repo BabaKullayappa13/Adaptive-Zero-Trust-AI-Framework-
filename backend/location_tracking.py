@@ -38,14 +38,14 @@ class LocationTrackingEngine:
         user_id: str,
         session_id: int,
         ip_address: str,
-        country: Optional[str] = "United States",
-        state_region: Optional[str] = "California",
-        city: Optional[str] = "San Francisco",
-        latitude: Optional[float] = 37.7749,
-        longitude: Optional[float] = -122.4194,
+        country: Optional[str] = None,
+        state_region: Optional[str] = None,
+        city: Optional[str] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
         is_vpn: bool = False
     ) -> Dict[str, Any]:
-        """Record session location and IP context"""
+        """Record session location and IP context without fabricating telemetry"""
         async with self.db_connect() as conn:
             if session_id:
                 await conn.execute(

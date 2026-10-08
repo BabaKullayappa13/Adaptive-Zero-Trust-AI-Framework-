@@ -201,10 +201,16 @@ class DatabaseManager:
                 await self._pool_queue.put(test_conn)
                 print(f"[Database] Connected to PostgreSQL (Neon Cloud) successfully.")
             except Exception as e:
+                env = (os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "development").strip().lower()
+                if env in ("production", "prod"):
+                    raise RuntimeError(f"[Database] FATAL: PostgreSQL connection failed in production ({e}). Failing closed.")
                 print(f"[Database] PostgreSQL connection failed ({e}). Falling back to local SQLite.")
                 self.is_postgres = False
 
         if not self.is_postgres:
+            env = (os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "development").strip().lower()
+            if env in ("production", "prod"):
+                raise RuntimeError("[Database] FATAL: Local SQLite database cannot be used in production. PostgreSQL is required.")
             import aiosqlite
             os.makedirs(os.path.dirname(os.path.abspath(SQLITE_DB_PATH)), exist_ok=True)
             print(f"[Database] Using SQLite at: {SQLITE_DB_PATH}")
@@ -636,6 +642,18 @@ class DatabaseManager:
                         detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         resolved_at TIMESTAMPTZ
                     );
+
+                    CREATE TABLE IF NOT EXISTS mfa_challenges (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        challenge_type VARCHAR(50) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        attempt_count INTEGER NOT NULL DEFAULT 0,
+                        max_attempts INTEGER NOT NULL DEFAULT 5,
+                        consumed_at TIMESTAMPTZ,
+                        status VARCHAR(50) NOT NULL DEFAULT 'PENDING'
+                    );
                 """)
             else:
                 await conn.execute("""
@@ -1022,6 +1040,20 @@ class DatabaseManager:
                         resolved_at TEXT
                     );
                 """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS mfa_challenges (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        challenge_type TEXT NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TEXT NOT NULL,
+                        attempt_count INTEGER DEFAULT 0,
+                        max_attempts INTEGER DEFAULT 5,
+                        consumed_at TEXT,
+                        status TEXT DEFAULT 'PENDING',
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                """)
 
             if self.is_postgres:
                 migration_statements = [
@@ -1116,8 +1148,9 @@ class DatabaseManager:
                 for stmt in migration_statements:
                     try:
                         await conn.execute(stmt)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # In Postgres, IF NOT EXISTS avoids errors; log any unexpected issue
+                        print(f"[Database Migration] Notice on statement '{stmt[:40]}...': {e}")
             else:
                 sqlite_migrations = [
                     "ALTER TABLE users ADD COLUMN secure_pin_configured INTEGER DEFAULT 0",
@@ -1141,49 +1174,51 @@ class DatabaseManager:
                 for stmt in sqlite_migrations:
                     try:
                         await conn.execute(stmt)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Duplicate column name errors are expected in SQLite when already migrated
+                        if "duplicate column" not in str(e).lower():
+                            print(f"[Database Migration SQLite] Notice: {e}")
 
             try:
                 await conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Database Migration] Commit error: {e}")
 
             try:
                 await self._seed_defaults(conn)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Database] Notice in seed defaults: {e}")
             self._initialized = True
 
     async def _seed_defaults(self, conn: DatabaseConnection):
-        """Seed default admin account, policies, federated rounds, and cloud topology if not present"""
+        """
+        Seed baseline policies and cloud topologies.
+        CRITICAL DATA INTEGRITY:
+        - NEVER seeds fake users, fake login history, fake security events, or fake federated results.
+        - Initial admin account is created ONLY if explicit bootstrap environment variables are configured.
+        """
         from security import hash_password, hash_secret_pin
 
-        # 1. Seed demo/admin user
-        check_user = await conn.execute("SELECT id FROM users WHERE email = %s", ("admin@zerotrust.ai",))
-        if not await check_user.fetchone():
-            admin_id = str(uuid.uuid4())
-            admin_pwd_hash = hash_password("Admin@123456")
-            admin_pin_hash = hash_secret_pin("123456")
-            await conn.execute(
-                """INSERT INTO users (id, email, password_hash, pin_hash, name, mfa_enabled, role, secure_pin_configured, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())""",
-                (admin_id, "admin@zerotrust.ai", admin_pwd_hash, admin_pin_hash, "Security Administrator", True, "admin", True)
-            )
+        # 1. Environment-driven administrator bootstrap (no hardcoded passwords or PINs)
+        bootstrap_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL")
+        bootstrap_pwd = os.getenv("BOOTSTRAP_ADMIN_PASSWORD")
+        bootstrap_pin = os.getenv("BOOTSTRAP_ADMIN_PIN")
 
-        # Seed standard operator user
-        check_op = await conn.execute("SELECT id FROM users WHERE email = %s", ("operator@zerotrust.ai",))
-        if not await check_op.fetchone():
-            op_id = str(uuid.uuid4())
-            op_pwd_hash = hash_password("Operator@123456")
-            op_pin_hash = hash_secret_pin("654321")
-            await conn.execute(
-                """INSERT INTO users (id, email, password_hash, pin_hash, name, mfa_enabled, role, secure_pin_configured, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())""",
-                (op_id, "operator@zerotrust.ai", op_pwd_hash, op_pin_hash, "Security Operator", False, "operator", True)
-            )
+        if bootstrap_email and bootstrap_pwd:
+            clean_email = bootstrap_email.strip().lower()
+            check_user = await conn.execute("SELECT id FROM users WHERE email = %s", (clean_email,))
+            if not await check_user.fetchone():
+                admin_id = str(uuid.uuid4())
+                admin_pwd_hash = hash_password(bootstrap_pwd.strip())
+                admin_pin_hash = hash_secret_pin(bootstrap_pin.strip()) if bootstrap_pin else None
+                await conn.execute(
+                    """INSERT INTO users (id, email, password_hash, pin_hash, name, mfa_enabled, role, secure_pin_configured, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())""",
+                    (admin_id, clean_email, admin_pwd_hash, admin_pin_hash, "System Administrator", bool(admin_pin_hash), "admin", bool(admin_pin_hash))
+                )
+                print(f"[Database] Bootstrapped administrator account from environment: {clean_email}")
 
-        # 2. Seed Default Policies
+        # 2. Baseline Access Policies (System configuration rules - no fake events)
         check_policy = await conn.execute("SELECT id FROM trust_policies LIMIT 1")
         if not await check_policy.fetchone():
             await conn.execute("""
@@ -1208,7 +1243,7 @@ class DatabaseManager:
                     VALUES (%s, %s, %s, %s, %s, %s)
                 """, (p_id, "Unrecognized Device Check", "device_mismatch", "true", "CHALLENGE_PIN", "medium"))
 
-        # 3. Seed Cloud Configurations (Hybrid Cloud Topology)
+        # 3. Hybrid Cloud Topology Endpoints (Configuration endpoints)
         check_clouds = await conn.execute("SELECT id FROM cloud_configurations LIMIT 1")
         if not await check_clouds.fetchone():
             await conn.execute("""
@@ -1224,35 +1259,8 @@ class DatabaseManager:
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, ("Public Analytics & Compute Cluster", "public", "GCP us-central1", "us-central1", "https://compute.gcp.zerotrust.io", False, "active"))
 
-        # 4. Seed Initial Federated Learning Simulation Round
-        check_fl = await conn.execute("SELECT id FROM federated_rounds LIMIT 1")
-        if not await check_fl.fetchone():
-            await conn.execute("""
-                INSERT INTO federated_rounds (round_number, model_version, target_accuracy, minimum_participants, status)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (1, "v1.0.0-fedavg", 0.96, 3, "completed"))
-            r_res = await conn.execute("SELECT id FROM federated_rounds WHERE round_number = 1")
-            r_row = await r_res.fetchone()
-            if r_row:
-                r_id = r_row[0]
-                await conn.execute("""
-                    INSERT INTO federated_participants (round_id, org_id, local_accuracy, local_loss, data_samples_count, uploaded_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                """, (r_id, "Client-A (Private Cloud DC-West)", 0.972, 0.041, 1420))
-                await conn.execute("""
-                    INSERT INTO federated_participants (round_id, org_id, local_accuracy, local_loss, data_samples_count, uploaded_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                """, (r_id, "Client-B (Public Cloud AWS-East)", 0.965, 0.052, 2180))
-                await conn.execute("""
-                    INSERT INTO federated_participants (round_id, org_id, local_accuracy, local_loss, data_samples_count, uploaded_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                """, (r_id, "Client-C (Edge Gateway Central)", 0.958, 0.061, 980))
-
-                await conn.execute("""
-                    INSERT INTO federated_models (round_id, version, global_accuracy, global_loss, model_type)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (r_id, "v1.0.0-fedavg", 0.966, 0.050, "fedavg"))
-
+        # NOTE: Federated rounds, simulation participants, fake events, and fake telemetry
+        # are NEVER seeded! If no real data exists, UI displays "No data available" honestly.
         await conn.commit()
 
 
