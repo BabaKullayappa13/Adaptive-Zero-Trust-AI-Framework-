@@ -235,7 +235,7 @@ The **Adaptive Zero Trust-AI Framework** has been successfully built as a comple
 - Isolation Forest anomaly detection
 - Multi-class risk classification
 - SHAP-based explainability
-- CICIDS2017 dataset compatibility
+- CICIDS2026 dataset compatibility
 - Real-time predictions
 - Model accuracy tracking
 

@@ -29,7 +29,7 @@ A **complete enterprise-grade security framework** with:
 - ML-based trust scoring engine
 - Real-time behavioral analysis
 - SHAP-based explainability (XAI)
-- CICIDS2017 dataset compatibility
+- CICIDS2026 dataset compatibility
 
 ✅ **Professional Dashboard**
 - Real-time trust score visualization
@@ -189,7 +189,7 @@ Register → Login → (Optional MFA) → Token → Dashboard
 
 **Uses Machine Learning**:
 - Isolation Forest for anomaly detection
-- Trained on CICIDS2017 dataset
+- Trained on CICIDS2026 dataset
 - Detects unusual login patterns
 - Identifies suspicious behavior
 
@@ -573,7 +573,7 @@ psql $DATABASE_URL -c "SELECT 1"
 
 ### Short-term (This Month)
 - [ ] Deploy to production
-- [ ] Train on real CICIDS2017 data
+- [ ] Train on real CICIDS2026 data
 - [ ] Set up alerting
 - [ ] Configure backups
 - [ ] Perform penetration testing

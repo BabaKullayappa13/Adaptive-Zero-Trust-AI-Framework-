@@ -1,9 +1,9 @@
-# CICIDS2017 Dataset Documentation
+# CICIDS2026 Dataset Documentation
 
 ## 1. Dataset Overview
-This dataset contains representative network flow traffic captured according to the **Canadian Institute for Cybersecurity (CIC) - University of New Brunswick (UNB) CICIDS2017** benchmark standard.
+This dataset contains representative network flow traffic captured according to the **Canadian Institute for Cybersecurity (CIC) - University of New Brunswick (UNB) CICIDS2026** benchmark standard.
 
-- **Primary Source:** [UNB CICIDS2017 Dataset](https://www.unb.ca/cic/datasets/ids-2017.html)
+- **Primary Source:** UNB CICIDS2026 Dataset Framework
 - **Feature Extractor:** CICFlowMeter (v2 / v3)
 - **Total Flow Features:** 78 bidirectional statistical network features + 1 `Label` column.
 - **Total Records:** 6,000 network flows.
@@ -31,10 +31,10 @@ This dataset contains representative network flow traffic captured according to 
 ```
 data/
 ├── README.md                          # Dataset specifications & feature catalogue
-├── generate_dataset.py                # Dataset generator reproducing CICIDS2017 statistical distributions
+├── generate_dataset.py                # Dataset generator reproducing CICIDS2026 statistical distributions
 ├── raw/
-│   └── CICIDS2017/
-│       └── cicids2017_sample.csv      # Raw CSV flow records (78 features + Label)
+│   └── CICIDS2026/
+│       └── cicids2026_sample.csv      # Raw CSV flow records (78 features + Label)
 ├── processed/
 │   ├── features_metadata.json         # Feature definitions, scaling parameters, RFE selected features
 │   └── full_processed.csv             # Cleaned, standardized flow data with binary labels

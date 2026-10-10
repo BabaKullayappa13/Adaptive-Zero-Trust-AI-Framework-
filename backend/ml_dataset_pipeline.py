@@ -1,6 +1,6 @@
 """
 Machine Learning Dataset Preprocessing Pipeline for Adaptive Zero Trust AI Framework
-Loads CICIDS2017 dataset, handles missing/infinite values, performs stratified Train/Val/Test splitting,
+Loads CICIDS2026 dataset, handles missing/infinite values, performs stratified Train/Val/Test splitting,
 and executes StandardScaler, PCA (10 components), and Recursive Feature Elimination (RFE, 15 features).
 """
 
@@ -40,11 +40,13 @@ class MLDatasetPipeline:
     def load_and_clean_data(self, csv_path: Optional[str] = None) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
         """Load CSV, trim column whitespace, clean infinities/nulls, and encode labels"""
         if csv_path is None:
-            csv_path = self.data_root / "raw" / "CICIDS2017" / "cicids2017_sample.csv"
+            p2026 = self.data_root / "raw" / "CICIDS2026" / "cicids2026_sample.csv"
+            p2017 = self.data_root / "raw" / "CICIDS2017" / "cicids2017_sample.csv"
+            csv_path = p2026 if p2026.exists() else p2017
         
         path = Path(csv_path)
         if not path.exists():
-            raise FileNotFoundError(f"CICIDS2017 dataset file not found at: {path}")
+            raise FileNotFoundError(f"CICIDS2026 dataset file not found at: {path}")
 
         print(f"[MLDatasetPipeline] Loading raw dataset from: {path}")
         df = pd.read_csv(path)

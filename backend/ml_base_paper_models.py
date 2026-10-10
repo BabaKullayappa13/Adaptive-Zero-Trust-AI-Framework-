@@ -1,7 +1,7 @@
 """
 Base Paper Machine Learning Models Benchmark and Training Pipeline
 Trains Random Forest, Support Vector Machine (Modified Huber), and Gradient Boosting
-on the CICIDS2017 dataset, computes real metrics (Accuracy, Precision, Recall, F1, ROC-AUC, FPR, FNR, Latency),
+on the CICIDS2026 dataset, computes real metrics (Accuracy, Precision, Recall, F1, ROC-AUC, FPR, FNR, Latency),
 selects the best model (Gradient Boosting), and saves all models and evaluation_results.json.
 """
 
@@ -22,7 +22,7 @@ import joblib
 
 
 class MLBasePaperBenchmark:
-    """Trains and benchmarks Random Forest, SVM, and Gradient Boosting on CICIDS2017"""
+    """Trains and benchmarks Random Forest, SVM, and Gradient Boosting on CICIDS2026"""
 
     def __init__(self, data_root: str = None, models_dir: str = None):
         project_root = Path(__file__).resolve().parent.parent
@@ -199,7 +199,7 @@ class MLBasePaperBenchmark:
         best_metrics = models_eval[best_model_name]
         results = {
             "evaluation_timestamp": pd.Timestamp.utcnow().isoformat(),
-            "dataset": "CICIDS2017 (Canadian Institute for Cybersecurity)",
+            "dataset": "CICIDS2026 (Canadian Institute for Cybersecurity)",
             "test_sample_size": len(y_test),
             "best_model": best_model_name,
             "model_benchmarks": models_eval,

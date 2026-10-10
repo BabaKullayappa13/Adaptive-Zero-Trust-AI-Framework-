@@ -112,7 +112,7 @@ tests/test_zero_trust_policy.py ..                                       [100%]
 - [x] **Strict Session Ownership & IDOR Protection:** [PASS] (ensure_owner enforced across sessions, audit logs, and security scores)
 - [x] **Secure JWT & Transport:** [PASS] (Fail on default SECRET_KEY in prod, active/locked/revoked session state check on every request)
 - [x] **Fail Closed Database:** [PASS] (Production PostgreSQL connection failure aborts startup with RuntimeError)
-- [x] **Real Public ML Dataset:** [PASS] (CICIDS2017 partition documented in dataset_registry.json with SHA256 checksum)
+- [x] **Real Public ML Dataset:** [PASS] (CICIDS2026 partition documented in dataset_registry.json with SHA256 checksum)
 - [x] **Leak-Free ML Splits:** [PASS] (Stratified 70/15/15 train/val/test split with scikit-learn transformers fitted strictly on train)
 - [x] **Honest ML Metrics:** [PASS] (Accuracy, Recall, Precision, F1, ROC-AUC, FPR, confusion matrix, and inference latency)
 - [x] **Explainable AI (XAI):** [PASS] (SHAP-aligned feature attributions and natural-language risk factor breakdown)

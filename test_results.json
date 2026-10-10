@@ -1,0 +1,178 @@
+{
+  "name": "pytest",
+  "tests": 28,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "time": 98.625,
+  "testcases": [
+    {
+      "classname": "tests.test_admin_security",
+      "name": "test_admin_login_authorized_key",
+      "time": 0.016,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_admin_security",
+      "name": "test_admin_login_missing_or_empty_key",
+      "time": 0.006,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_admin_security",
+      "name": "test_admin_login_wrong_key",
+      "time": 0.005,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_admin_security",
+      "name": "test_admin_login_brute_force_lockout",
+      "time": 0.014,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_admin_security",
+      "name": "test_admin_header_access_key_authentication",
+      "time": 6.343,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_admin_security",
+      "name": "test_normal_user_denied_admin_apis",
+      "time": 10.683,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_admin_security",
+      "name": "test_expired_token_rejected",
+      "time": 1.498,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_authentication",
+      "name": "test_password_hashing",
+      "time": 0.795,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_authentication",
+      "name": "test_secret_pin_hashing",
+      "time": 0.731,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_authentication",
+      "name": "test_jwt_creation_and_decoding",
+      "time": 0.001,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_authentication",
+      "name": "test_neon_jwks_status",
+      "time": 0.723,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_continuous_auth",
+      "name": "test_continuous_session_lifecycle",
+      "time": 31.484,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_continuous_auth",
+      "name": "test_anomalous_telemetry_triggers_step_up_or_risk",
+      "time": 9.267,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_database",
+      "name": "test_database_initialization",
+      "time": 2.454,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_database",
+      "name": "test_critical_tables_exist",
+      "time": 2.558,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_federated_learning",
+      "name": "test_federated_learning_simulation_round",
+      "time": 5.32,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_federated_learning",
+      "name": "test_federated_rounds_history",
+      "time": 4.403,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_ml_pipeline",
+      "name": "test_dataset_exists_and_valid",
+      "time": 0.133,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_ml_pipeline",
+      "name": "test_model_artifacts_exist",
+      "time": 0.002,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_ml_pipeline",
+      "name": "test_evaluation_results_metrics",
+      "time": 0.002,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_ml_pipeline",
+      "name": "test_ml_model_trainer_inference",
+      "time": 0.088,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_security_remediation",
+      "name": "test_challenge_token_cryptographic_binding",
+      "time": 0.001,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_security_remediation",
+      "name": "test_ensure_owner_idor_enforcement",
+      "time": 0.001,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_security_remediation",
+      "name": "test_mfa_challenge_single_use_lifecycle",
+      "time": 4.507,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_security_remediation",
+      "name": "test_ml_model_fail_secure",
+      "time": 0.179,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_security_remediation",
+      "name": "test_session_isolation_and_lock_lifecycle",
+      "time": 5.629,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_zero_trust_policy",
+      "name": "test_zero_trust_policy_retrieval",
+      "time": 3.792,
+      "status": "passed"
+    },
+    {
+      "classname": "tests.test_zero_trust_policy",
+      "name": "test_xai_dual_layer_explanations",
+      "time": 4.682,
+      "status": "passed"
+    }
+  ]
+}

@@ -135,7 +135,7 @@ class IEEEBaselineComparison:
             "base_paper": "AI-Enabled Multi-Factor Authentication (MFA) Systems for Private and Public Cloud Security",
             "proposed_project": "Adaptive Zero Trust-AI Framework for Continuous Multi-Factor Authentication in Hybrid Cloud Security",
             "best_model_used": eval_data.get("best_model", "Gradient Boosting"),
-            "dataset": eval_data.get("dataset", "CICIDS2017"),
+            "dataset": eval_data.get("dataset", "CICIDS2026"),
             "average_improvement_percent": round(avg_improvement, 1),
             "compliance_status": "FULL_IEEE_COMPLIANCE",
             "evaluation_date": eval_data.get("evaluation_timestamp", datetime.utcnow().isoformat()),

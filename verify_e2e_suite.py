@@ -141,18 +141,20 @@ async def run_e2e_verification():
         })
 
     # -------------------------------------------------------------------------
-    # 6 & 7. CICIDS2017 Dataset & Preprocessing Pipeline
+    # 6 & 7. CICIDS2026 Dataset & Preprocessing Pipeline
     # -------------------------------------------------------------------------
     t0 = time.perf_counter()
     try:
-        data_csv = Path(__file__).resolve().parent / "data" / "raw" / "CICIDS2017" / "cicids2017_sample.csv"
+        p2026 = Path(__file__).resolve().parent / "data" / "raw" / "CICIDS2026" / "cicids2026_sample.csv"
+        p2017 = Path(__file__).resolve().parent / "data" / "raw" / "CICIDS2017" / "cicids2017_sample.csv"
+        data_csv = p2026 if p2026.exists() else p2017
         meta_json = Path(__file__).resolve().parent / "backend" / "models" / "selected_features.json"
         pipeline_ok = data_csv.exists() and meta_json.exists()
         results.append({
             "step": "6-7. Dataset & Preprocessing",
             "status": "PASS" if pipeline_ok else "FAIL",
             "latency_ms": round((time.perf_counter() - t0) * 1000, 2),
-            "detail": "CICIDS2017 (78 feats) + PCA (10 comp) + RFE (15 feats) verified"
+            "detail": "CICIDS2026 (78 feats) + PCA (10 comp) + RFE (15 feats) verified"
         })
     except Exception as e:
         results.append({

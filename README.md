@@ -147,7 +147,7 @@ pnpm dev
 ### Anomaly Detection
 - **Algorithm**: Isolation Forest
 - **Features**: Login hour, device count, failed attempts, session duration, geographic distance, device trust, velocity, request count
-- **Training Data**: CICIDS2017 dataset patterns
+- **Training Data**: CICIDS2026 dataset patterns
 - **Output**: Anomaly score (0-1)
 
 ### Trust Scoring

@@ -93,7 +93,7 @@ This document confirms that the **Adaptive Zero Trust-AI Framework** has been su
   - Behavioral history
   
 - ✅ **Anomaly Detection**: Uses Isolation Forest algorithm on:
-  - CICIDS2017 dataset features
+  - CICIDS2026 dataset features
   - Network behavior patterns
   - Session characteristics
   
@@ -342,7 +342,7 @@ Complete documentation provided:
 ## 13. Known Limitations & Notes
 
 1. **ML Models**: Currently using realistic mock predictions. For production:
-   - Train on actual CICIDS2017 dataset
+   - Train on actual CICIDS2026 dataset
    - Implement model persistence
    - Add batch prediction support
 
@@ -366,7 +366,7 @@ Complete documentation provided:
 ## 14. Next Steps for Production
 
 1. **Data Preparation**:
-   - Download and process CICIDS2017 dataset
+   - Download and process CICIDS2026 dataset
    - Train ML models with real data
    - Validate model performance
 

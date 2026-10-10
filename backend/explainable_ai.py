@@ -152,7 +152,7 @@ class ExplainableAIService:
             "risk_score": risk_score,
             "trust_score": trust_score,
             "feature_attribution": feature_contributions,
-            "model_architecture": "Gradient Boosting (CICIDS2017) + Behavioral Isolation Forest",
+            "model_architecture": "Gradient Boosting (CICIDS2026) + Behavioral Isolation Forest",
             "feature_selection": "Recursive Feature Elimination (RFE, 15 features) + PCA (10 components)",
             "shap_kernel": "TreeSHAP Attribution (Lundberg et al.)",
             "evaluated_at": datetime.utcnow().isoformat(),

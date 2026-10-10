@@ -1,6 +1,6 @@
 """
 Machine Learning Model Training and Inference Pipeline for Adaptive Zero Trust AI Framework
-Manages Gradient Boosting classifier (trained on CICIDS2017) and Isolation Forest anomaly detector
+Manages Gradient Boosting classifier (trained on CICIDS2026) and Isolation Forest anomaly detector
 for continuous multi-factor behavioral and network risk scoring.
 """
 
@@ -29,7 +29,7 @@ BEHAVIORAL_FEATURES = [
 
 
 class MLModelTrainer:
-    """Manages Gradient Boosting (CICIDS2017) and Isolation Forest models for continuous authentication"""
+    """Manages Gradient Boosting (CICIDS2026) and Isolation Forest models for continuous authentication"""
 
     def __init__(self, model_dir: Optional[str] = None):
         if model_dir is None:
@@ -42,7 +42,7 @@ class MLModelTrainer:
         self.behavioral_model: Optional[IsolationForest] = None
         self.feature_names = BEHAVIORAL_FEATURES
 
-        # Network Threat Classification components (Gradient Boosting on CICIDS2017)
+        # Network Threat Classification components (Gradient Boosting on CICIDS2026)
         self.network_model: Optional[Any] = None
         self.network_scaler: Optional[Any] = None
         self.network_rfe: Optional[Any] = None
@@ -57,7 +57,7 @@ class MLModelTrainer:
         self._load_or_train_behavioral_model()
 
     def _load_network_threat_model(self):
-        """Load trained Gradient Boosting classifier and transformers from CICIDS2017 pipeline"""
+        """Load trained Gradient Boosting classifier and transformers from CICIDS2026 pipeline"""
         try:
             best_model_path = self.model_dir / "best_model.joblib"
             scaler_path = self.model_dir / "scaler.joblib"
@@ -73,7 +73,7 @@ class MLModelTrainer:
                     with open(meta_path, "r") as f:
                         self.network_features_meta = json.load(f)
 
-                print(f"[MLModelTrainer] Loaded trained Gradient Boosting classifier (CICIDS2017): {best_model_path.name}")
+                print(f"[MLModelTrainer] Loaded trained Gradient Boosting classifier (CICIDS2026): {best_model_path.name}")
         except Exception as e:
             print(f"[MLModelTrainer] Notice: Could not load network threat model: {e}")
 
@@ -232,7 +232,7 @@ class MLModelTrainer:
             }
 
     def predict_network_threat(self, flow_features: np.ndarray) -> Dict[str, Any]:
-        """Predict network threat using trained Gradient Boosting classifier on CICIDS2017"""
+        """Predict network threat using trained Gradient Boosting classifier on CICIDS2026"""
         try:
             if self.network_model is None:
                 self._load_network_threat_model()
@@ -268,7 +268,7 @@ class MLModelTrainer:
                 "threat_detected": bool(prediction == 1 or prob > 0.5),
                 "threat_probability": round(prob, 4),
                 "risk_score": risk_score,
-                "model_used": "GradientBoosting (CICIDS2017)"
+                "model_used": "GradientBoosting (CICIDS2026)"
             }
         except Exception as e:
             print(f"[MLModelTrainer] Network threat prediction error (failing secure): {e}")

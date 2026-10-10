@@ -44,7 +44,7 @@ This document provides a comprehensive security and authorization matrix coverin
 | `/api/federated/rounds/history` | `GET` | Public / Gateway Monitoring | None | Read-only simulation historical logs | Class B |
 | `/api/threats/intelligence` | `GET` | Access JWT Token | Authenticated / Admin | Non-admin isolated to caller/system indicators | Class A |
 | `/api/simulation/scenario` | `POST` | Access JWT Token | Authenticated / Admin | Enforces `ensure_owner(req.user_id, current_user)` | Class A / C |
-| `/api/research/metrics/latest` | `GET` | Public / Academic Review | None | CICIDS2017 empirical benchmark results | Class B |
+| `/api/research/metrics/latest` | `GET` | Public / Academic Review | None | CICIDS2026 empirical benchmark results | Class B |
 | `/api/research/baseline-comparison/report` | `GET` | Public / Academic Review | None | IEEE Base Paper comparative analysis | Class B |
 | `/api/health` | `GET` | Public (Unauthenticated) | None | System status and service health | System |
 
@@ -73,7 +73,7 @@ flowchart TD
 - [x] **Strict Session Ownership & IDOR Protection:** [PASS] (ensure_owner enforced across sessions, audit logs, and security scores)
 - [x] **Secure JWT & Transport:** [PASS] (Fail on default SECRET_KEY in prod, active/locked/revoked session state check on every request)
 - [x] **Fail Closed Database:** [PASS] (Production PostgreSQL connection failure aborts startup with RuntimeError)
-- [x] **Real Public ML Dataset:** [PASS] (CICIDS2017 partition documented in dataset_registry.json with SHA256 checksum)
+- [x] **Real Public ML Dataset:** [PASS] (CICIDS2026 partition documented in dataset_registry.json with SHA256 checksum)
 - [x] **Leak-Free ML Splits:** [PASS] (Stratified 70/15/15 train/val/test split with scikit-learn transformers fitted strictly on train)
 - [x] **Honest ML Metrics:** [PASS] (Accuracy, Recall, Precision, F1, ROC-AUC, FPR, confusion matrix, and inference latency)
 - [x] **Explainable AI (XAI):** [PASS] (SHAP-aligned feature attributions and natural-language risk factor breakdown)

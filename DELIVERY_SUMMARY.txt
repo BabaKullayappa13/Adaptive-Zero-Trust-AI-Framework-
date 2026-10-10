@@ -87,7 +87,7 @@ DOCUMENTATION
    • Isolation Forest anomaly detection
    • Multi-class risk classification
    • SHAP-based explainability (XAI)
-   • CICIDS2017 dataset integration ready
+   • CICIDS2026 dataset integration ready
    • Real-time risk evaluation
    • ML model predictions (<500ms)
 

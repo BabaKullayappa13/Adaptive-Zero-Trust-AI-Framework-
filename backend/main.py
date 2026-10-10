@@ -11,6 +11,7 @@ if sys.platform == "win32":
         pass
 
 import os
+import time
 import json
 import uuid
 import secrets
@@ -1736,9 +1737,22 @@ async def get_dashboard_summary(conn: DatabaseConnection = Depends(get_db)):
     }
 
 
+_admin_failed_attempts: int = 0
+_admin_lockout_until: float = 0.0
+
 @app.post("/api/admin/login", tags=["Administration"])
 async def admin_login(req: AdminLoginRequest):
-    """Authenticate administrator using server-side ADMIN_ACCESS_KEY"""
+    """Authenticate administrator using server-side ADMIN_ACCESS_KEY with brute-force lockout"""
+    global _admin_failed_attempts, _admin_lockout_until
+
+    now = time.time()
+    if now < _admin_lockout_until:
+        remaining = int(_admin_lockout_until - now)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed admin login attempts. Admin authentication locked. Try again in {remaining} seconds."
+        )
+
     configured_key = (os.getenv("ADMIN_ACCESS_KEY") or "").strip()
     if not configured_key:
         raise HTTPException(
@@ -1751,11 +1765,18 @@ async def admin_login(req: AdminLoginRequest):
         raise HTTPException(status_code=400, detail="Secure access key is required.")
 
     if not secrets.compare_digest(provided_key, configured_key):
+        _admin_failed_attempts += 1
+        if _admin_failed_attempts >= 5:
+            _admin_lockout_until = now + 900  # 15 minutes lockout
         raise HTTPException(status_code=401, detail="Invalid admin key")
 
+    _admin_failed_attempts = 0
+    _admin_lockout_until = 0.0
+
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@gateway.internal")
     token = create_access_token(
         user_id="admin",
-        email="admin@zerotrust.ai",
+        email=admin_email,
         role="admin",
         session_id="admin-session",
         expires_delta=timedelta(hours=8)
@@ -3351,7 +3372,7 @@ async def get_behavioral_monitoring_accuracy():
                 raw_eval = json.load(f)
                 best_model = raw_eval.get("best_model_metrics", {})
                 network_eval = {
-                    "dataset": raw_eval.get("dataset", "CICIDS2017 Network Intrusion"),
+                    "dataset": raw_eval.get("dataset", "CICIDS2026 Network Intrusion"),
                     "sample_size": raw_eval.get("test_sample_size", 900),
                     "model_name": best_model.get("model_name", "Gradient Boosting"),
                     "accuracy": best_model.get("accuracy", 100.0),
@@ -3366,7 +3387,7 @@ async def get_behavioral_monitoring_accuracy():
 
     return {
         "network_security_evaluation": {
-            "source": "CICIDS2017 Benchmark Evaluation",
+            "source": "CICIDS2026 Benchmark Evaluation",
             "evaluated": bool(network_eval),
             "metrics": network_eval
         },

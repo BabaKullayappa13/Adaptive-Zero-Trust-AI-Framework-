@@ -1,7 +1,7 @@
 """
 Federated Learning Service for Privacy-Preserving Authentication Model Improvement
 Executes Federated Averaging (FedAvg) parameter aggregation across decentralized client edge node partitions
-(Private Cloud, Public Cloud, Edge Gateway) using CICIDS2017 flow data.
+(Private Cloud, Public Cloud, Edge Gateway) using CICIDS2026 flow data.
 """
 
 from typing import Optional, List, Dict, Any

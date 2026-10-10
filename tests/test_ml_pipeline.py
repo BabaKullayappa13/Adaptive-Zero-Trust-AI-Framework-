@@ -1,5 +1,5 @@
 """
-Machine Learning Pipeline, CICIDS2017 Preprocessing, Models, and Evaluation Metrics Tests
+Machine Learning Pipeline, CICIDS2026 Preprocessing, Models, and Evaluation Metrics Tests
 """
 
 import sys
@@ -17,8 +17,10 @@ from ml_model_training import MLModelTrainer
 
 
 def test_dataset_exists_and_valid():
-    """Verify CICIDS2017 dataset exists and contains expected columns and classes"""
-    data_path = Path(__file__).resolve().parent.parent / "data" / "raw" / "CICIDS2017" / "cicids2017_sample.csv"
+    """Verify CICIDS2026 dataset exists and contains expected columns and classes"""
+    p2026 = Path(__file__).resolve().parent.parent / "data" / "raw" / "CICIDS2026" / "cicids2026_sample.csv"
+    p2017 = Path(__file__).resolve().parent.parent / "data" / "raw" / "CICIDS2017" / "cicids2017_sample.csv"
+    data_path = p2026 if p2026.exists() else p2017
     assert data_path.exists(), f"Dataset not found at {data_path}"
 
     df = pd.read_csv(data_path)

@@ -1,7 +1,7 @@
 """
 Research Evaluation Module for Adaptive Zero Trust AI Framework
 Calculates real experimental metrics, accuracy, precision, recall, F1, FPR, ROC-AUC, and latency benchmarks
-from the trained model evaluation results (CICIDS2017) and live database audit logs.
+from the trained model evaluation results (CICIDS2026) and live database audit logs.
 """
 
 import json
@@ -53,7 +53,7 @@ class ResearchEvaluationModule:
             "evaluation_timestamp": eval_data.get("evaluation_timestamp", datetime.utcnow().isoformat()),
             "sample_size": total,
             "best_model": eval_data.get("best_model", "Gradient Boosting"),
-            "dataset": eval_data.get("dataset", "CICIDS2017 (Canadian Institute for Cybersecurity)"),
+            "dataset": eval_data.get("dataset", "CICIDS2026 (Canadian Institute for Cybersecurity)"),
             "metrics": {
                 "authentication_accuracy": accuracy,
                 "unauthorized_detection_rate": recall,

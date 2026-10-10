@@ -30,7 +30,7 @@ flowchart TD
     end
 
     subgraph B["Class B: Real Public ML Datasets"]
-        B1["UNB CICIDS2017 Benchmark"]
+        B1["UNB CICIDS2026 Benchmark"]
         B2["6,000 Stratified Flow Records"]
         B3["Offline Training & Benchmarking"]
         B4["Artifacts: Scaler, RFE, Models"]
@@ -67,11 +67,11 @@ Stored permanently in the cloud PostgreSQL database. Contains only records creat
 
 ---
 
-### Class B: Real Public ML Datasets (CICIDS2017)
+### Class B: Real Public ML Datasets (CICIDS2026)
 Used solely for training, validating, and testing machine learning classifiers in an offline research and benchmarking context:
 
 - **Source:** Canadian Institute for Cybersecurity, University of New Brunswick (UNB).
-- **Dataset Partition:** `cicids2017_sample.csv` (5.74 MB).
+- **Dataset Partition:** `cicids2026_sample.csv` (5.74 MB).
 - **Cryptographic Hash (SHA-256):** `05fdc1642d0c2bffb64c4ec80cb967f642b0d8c4d103edfe748c3c3de54a900b`.
 - **Composition:** 6,000 flow samples across 78 dimensions (60% BENIGN, 40% ATTACK across PortScan, DDoS, DoS Hulk, and Bot classes).
 - **Boundary Guarantee:** Data from this dataset is never mixed with application user tables and is never represented as production user traffic.
@@ -111,7 +111,7 @@ To safeguard data provenance throughout the gateway:
 - [x] **Strict Session Ownership & IDOR Protection:** [PASS] (ensure_owner enforced across sessions, audit logs, and security scores)
 - [x] **Secure JWT & Transport:** [PASS] (Fail on default SECRET_KEY in prod, active/locked/revoked session state check on every request)
 - [x] **Fail Closed Database:** [PASS] (Production PostgreSQL connection failure aborts startup with RuntimeError)
-- [x] **Real Public ML Dataset:** [PASS] (CICIDS2017 partition documented in dataset_registry.json with SHA256 checksum)
+- [x] **Real Public ML Dataset:** [PASS] (CICIDS2026 partition documented in dataset_registry.json with SHA256 checksum)
 - [x] **Leak-Free ML Splits:** [PASS] (Stratified 70/15/15 train/val/test split with scikit-learn transformers fitted strictly on train)
 - [x] **Honest ML Metrics:** [PASS] (Accuracy, Recall, Precision, F1, ROC-AUC, FPR, confusion matrix, and inference latency)
 - [x] **Explainable AI (XAI):** [PASS] (SHAP-aligned feature attributions and natural-language risk factor breakdown)

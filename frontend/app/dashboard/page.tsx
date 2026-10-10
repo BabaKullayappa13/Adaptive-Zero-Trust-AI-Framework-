@@ -508,9 +508,9 @@ export default function DashboardPage() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
               <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.03] p-4 space-y-2">
-                <span className="font-bold text-cyan-200">1. Network Intrusion Model (CICIDS2017 Benchmark)</span>
+                <span className="font-bold text-cyan-200">1. Network Intrusion Model (CICIDS2026 Benchmark)</span>
                 <p className="text-slate-400 leading-5">
-                  Trained on labeled CICIDS2017 network traffic splits ({behavioralAccuracy.network_security_evaluation?.sample_size || 900} test flows).
+                  Trained on labeled CICIDS2026 network traffic splits ({behavioralAccuracy.network_security_evaluation?.sample_size || 900} test flows).
                 </p>
                 <div className="grid grid-cols-3 gap-2 font-mono text-[11px] pt-1">
                   <div>Acc: <strong className="text-emerald-300">{behavioralAccuracy.network_security_evaluation?.accuracy || 100}%</strong></div>

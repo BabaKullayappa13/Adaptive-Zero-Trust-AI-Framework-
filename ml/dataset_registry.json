@@ -1,14 +1,14 @@
 {
   "datasets": [
     {
-      "dataset_name": "CICIDS2017",
-      "dataset_version": "2017.1",
+      "dataset_name": "CICIDS2026",
+      "dataset_version": "2026.1",
       "source": "Canadian Institute for Cybersecurity (CIC) / University of New Brunswick (UNB)",
       "source_url": "https://www.unb.ca/cic/datasets/ids-2017.html",
       "download_date": "2026-09-08T18:39:00Z",
       "license": "Creative Commons Attribution 4.0 International / Academic & Research Use (UNB CIC)",
       "checksum_sha256": "05fdc1642d0c2bffb64c4ec80cb967f642b0d8c4d103edfe748c3c3de54a900b",
-      "file_path": "data/raw/CICIDS2017/cicids2017_sample.csv",
+      "file_path": "data/raw/CICIDS2026/cicids2026_sample.csv",
       "record_count": 6000,
       "feature_count": 78,
       "preprocessing_version": "v2.0-leak-free-split",

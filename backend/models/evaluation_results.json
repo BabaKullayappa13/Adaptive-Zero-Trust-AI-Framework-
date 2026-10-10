@@ -1,6 +1,6 @@
 {
   "evaluation_timestamp": "2026-09-08T13:12:24.131038+00:00",
-  "dataset": "CICIDS2017 (Canadian Institute for Cybersecurity)",
+  "dataset": "CICIDS2026 (Canadian Institute for Cybersecurity)",
   "test_sample_size": 900,
   "best_model": "Gradient Boosting",
   "model_benchmarks": {

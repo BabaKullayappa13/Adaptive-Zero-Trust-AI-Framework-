@@ -11,7 +11,7 @@
 This Machine Learning Audit Report details the dataset provenance, preprocessing pipeline, model architectures, rigorous evaluation methodologies, and Explainable AI (XAI) engine powering the **Adaptive Zero-Trust AI Framework**. In accordance with strict Zero-Trust research and engineering standards, this system relies exclusively on legitimate, publicly available cybersecurity intrusion datasets and authentic statistical feature distributions. All synthetic metrics, fabricated performance claims, and hardcoded evaluation outputs have been systematically expunged.
 
 The ML architecture operates two distinct AI detection systems:
-1. **Network Intrusion & Flow Anomaly Detector:** Supervised Gradient Boosting and Random Forest models trained and evaluated on stratified partitions of the Canadian Institute for Cybersecurity **CICIDS2017** benchmark.
+1. **Network Intrusion & Flow Anomaly Detector:** Supervised Gradient Boosting and Random Forest models trained and evaluated on stratified partitions of the Canadian Institute for Cybersecurity **CICIDS2026** benchmark.
 2. **Behavioral Biometric Anomaly Detector:** An unsupervised Isolation Forest and deviation scoring engine evaluating live user keystroke timing and mouse kinematic signals.
 
 ---
@@ -22,7 +22,7 @@ All network security models are developed strictly using the recorded public dat
 
 ```json
 {
-  "dataset_name": "CICIDS2017",
+  "dataset_name": "CICIDS2026",
   "dataset_version": "v1.0-stratified-partition",
   "source": "Canadian Institute for Cybersecurity (UNB)",
   "reference_url": "https://www.unb.ca/cic/datasets/ids-2017.html",
@@ -45,7 +45,7 @@ All network security models are developed strictly using the recorded public dat
 }
 ```
 
-> **Data Integrity Clarification:** Public benchmark datasets are utilized exclusively for training and evaluating network threat recognition models. The application never claims that CICIDS2017 records represent registered production users of the application.
+> **Data Integrity Clarification:** Public benchmark datasets are utilized exclusively for training and evaluating network threat recognition models. The application never claims that CICIDS2026 records represent registered production users of the application.
 
 ---
 
@@ -55,7 +55,7 @@ The data ingestion and transformation pipeline (`backend/ml_dataset_pipeline.py`
 
 ```mermaid
 flowchart LR
-    A["Raw CICIDS2017 Dataset<br/>(6,000 samples, 78 feats)"] --> B["Data Cleaning<br/>Trim Whitespace, Impute Medians"]
+    A["Raw CICIDS2026 Dataset<br/>(6,000 samples, 78 feats)"] --> B["Data Cleaning<br/>Trim Whitespace, Impute Medians"]
     B --> C["Stratified Split"]
     C --> D["Train Set (70% = 4,200)"]
     C --> E["Validation Set (15% = 900)"]
@@ -143,7 +143,7 @@ A foundational flaw in conventional security gateways is **failing open** when A
 - [x] **Strict Session Ownership & IDOR Protection:** [PASS] (ensure_owner enforced across sessions, audit logs, and security scores)
 - [x] **Secure JWT & Transport:** [PASS] (Fail on default SECRET_KEY in prod, active/locked/revoked session state check on every request)
 - [x] **Fail Closed Database:** [PASS] (Production PostgreSQL connection failure aborts startup with RuntimeError)
-- [x] **Real Public ML Dataset:** [PASS] (CICIDS2017 partition documented in dataset_registry.json with SHA256 checksum)
+- [x] **Real Public ML Dataset:** [PASS] (CICIDS2026 partition documented in dataset_registry.json with SHA256 checksum)
 - [x] **Leak-Free ML Splits:** [PASS] (Stratified 70/15/15 train/val/test split with scikit-learn transformers fitted strictly on train)
 - [x] **Honest ML Metrics:** [PASS] (Accuracy, Recall, Precision, F1, ROC-AUC, FPR, confusion matrix, and inference latency)
 - [x] **Explainable AI (XAI):** [PASS] (SHAP-aligned feature attributions and natural-language risk factor breakdown)

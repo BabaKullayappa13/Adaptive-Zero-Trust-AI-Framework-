@@ -1,5 +1,5 @@
 """
-CICIDS2017 Dataset Generator for Adaptive Zero Trust AI Framework
+CICIDS2026 Dataset Generator for Adaptive Zero Trust AI Framework
 Generates a representative sample of network flows containing 78 CICFlowMeter features
 and realistic traffic distributions for BENIGN and attack flows (PortScan, DDoS, DoS Hulk, Bot, Infiltration, Brute Force).
 """
@@ -134,7 +134,7 @@ def generate_benign_samples(n_samples: int = 3600) -> pd.DataFrame:
     return df
 
 def generate_attack_samples(attack_type: str, n_samples: int) -> pd.DataFrame:
-    """Generate realistic network flow distributions matching CICIDS2017 attack profiles"""
+    """Generate realistic network flow distributions matching CICIDS2026 attack profiles"""
     df = pd.DataFrame(index=range(n_samples))
     
     if attack_type == "PortScan":
@@ -292,11 +292,11 @@ def generate_attack_samples(attack_type: str, n_samples: int) -> pd.DataFrame:
     return df
 
 def main():
-    data_dir = Path(__file__).resolve().parent / "raw" / "CICIDS2017"
+    data_dir = Path(__file__).resolve().parent / "raw" / "CICIDS2026"
     data_dir.mkdir(parents=True, exist_ok=True)
     
-    output_file = data_dir / "cicids2017_sample.csv"
-    print(f"Generating CICIDS2017 sample dataset at: {output_file}")
+    output_file = data_dir / "cicids2026_sample.csv"
+    print(f"Generating CICIDS2026 sample dataset at: {output_file}")
     
     df_benign = generate_benign_samples(3600)
     df_portscan = generate_attack_samples("PortScan", 600)
