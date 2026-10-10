@@ -193,3 +193,176 @@ async def test_expired_token_rejected():
             headers={"Authorization": f"Bearer {expired_token}"}
         )
         assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_user_lifecycle_suspend_restore_block():
+    """Test user lifecycle operations: suspend (with session revocation & login rejection), restore, block, and unblock"""
+    import json
+    from security import hash_password
+
+    # 1. Obtain admin token
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        login_res = await client.post("/api/admin/login", json={"key": DEV_ADMIN_KEY})
+        assert login_res.status_code == 200
+        admin_token = login_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # 2. Insert temporary test user into database
+        test_email = f"lifecycle_test_{uuid.uuid4().hex[:8]}@example.com"
+        test_pwd = "SecureTestPassword!2026"
+        pwd_hash = hash_password(test_pwd)
+        test_uid = str(uuid.uuid4())
+
+        async with db_manager.get_connection() as conn:
+            await conn.execute(
+                """INSERT INTO users (id, email, password_hash, name, role, is_active, email_verified, created_at)
+                   VALUES (%s, %s, %s, 'Lifecycle Tester', 'operator', TRUE, TRUE, NOW())""",
+                (test_uid, test_email, pwd_hash)
+            )
+            # Create active session
+            await conn.execute(
+                """INSERT INTO user_sessions (user_id, session_token, is_active, trust_score, risk_score, created_at)
+                   VALUES (%s, %s, TRUE, 85.0, 15.0, NOW())""",
+                (test_uid, f"test_session_{uuid.uuid4().hex}")
+            )
+            await conn.commit()
+
+        try:
+            # 3. Suspend user for 24 hours
+            suspend_res = await client.post(
+                f"/api/admin/users/{test_uid}/suspend",
+                json={"reason": "Suspicious login velocity", "duration_hours": 24},
+                headers=admin_headers
+            )
+            assert suspend_res.status_code == 200
+            assert suspend_res.json()["status"] == "SUCCESS"
+
+            # Verify session was revoked in DB
+            async with db_manager.get_connection() as conn:
+                s_res = await conn.execute("SELECT is_active FROM user_sessions WHERE user_id = %s", (test_uid,))
+                s_row = await s_res.fetchone()
+                assert s_row[0] is False
+
+            # Verify login is rejected
+            user_login_res = await client.post(
+                "/api/auth/login",
+                json={"email": test_email, "password": test_pwd}
+            )
+            assert user_login_res.status_code == 403
+            assert "suspended" in user_login_res.json()["detail"].lower()
+
+            # 4. Restore user
+            restore_res = await client.post(f"/api/admin/users/{test_uid}/restore", headers=admin_headers)
+            assert restore_res.status_code == 200
+
+            # 5. Block user
+            block_res = await client.post(
+                f"/api/admin/users/{test_uid}/block",
+                json={"reason": "Compromised credential identified"},
+                headers=admin_headers
+            )
+            assert block_res.status_code == 200
+
+            # Verify login is blocked
+            blocked_login_res = await client.post(
+                "/api/auth/login",
+                json={"email": test_email, "password": test_pwd}
+            )
+            assert blocked_login_res.status_code == 403
+            assert "blocked" in blocked_login_res.json()["detail"].lower()
+
+            # 6. Unblock user
+            unblock_res = await client.post(f"/api/admin/users/{test_uid}/unblock", headers=admin_headers)
+            assert unblock_res.status_code == 200
+
+        finally:
+            # Clean up
+            async with db_manager.get_connection() as conn:
+                await conn.execute("DELETE FROM user_sessions WHERE user_id = %s", (test_uid,))
+                await conn.execute("DELETE FROM users WHERE id = %s", (test_uid,))
+                await conn.commit()
+
+
+@pytest.mark.asyncio
+async def test_admin_activity_statement_download():
+    """Verify download of user activity statement in Hour, Day, Month periods and CSV/JSON formats"""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Obtain admin token
+        login_res = await client.post("/api/admin/login", json={"key": DEV_ADMIN_KEY})
+        admin_token = login_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # 1. 1-Hour Statement CSV
+        csv_hour = await client.get("/api/admin/reports/activity-statement?period=hour&format=csv", headers=admin_headers)
+        assert csv_hour.status_code == 200
+        assert "text/csv" in csv_hour.headers.get("content-type", "")
+        assert "attachment" in csv_hour.headers.get("content-disposition", "")
+        assert "Event ID" in csv_hour.text
+
+        # 2. 1-Day Statement CSV
+        csv_day = await client.get("/api/admin/reports/activity-statement?period=day&format=csv", headers=admin_headers)
+        assert csv_day.status_code == 200
+        assert "text/csv" in csv_day.headers.get("content-type", "")
+
+        # 3. 1-Month Statement JSON
+        json_month = await client.get("/api/admin/reports/activity-statement?period=month&format=json", headers=admin_headers)
+        assert json_month.status_code == 200
+        body = json_month.json()
+        assert body["statement_type"] == "User Activity Statement"
+        assert body["period"] == "month"
+        assert "records" in body
+
+
+@pytest.mark.asyncio
+async def test_ai_monitoring_overview_and_events():
+    """Verify dedicated AI Monitoring Overview and Events endpoints"""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        login_res = await client.post("/api/admin/login", json={"key": DEV_ADMIN_KEY})
+        admin_token = login_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # 1. Overview
+        ov_res = await client.get("/api/admin/ai-monitoring/overview", headers=admin_headers)
+        assert ov_res.status_code == 200
+        ov = ov_res.json()
+        assert ov["status"] == "operational"
+        assert ov["dataset_provenance"] == "CICIDS2026"
+        assert "XAI-IsolationForest-GBM" in ov["model_version"]
+        assert "risk_distribution" in ov
+
+        # 2. Events
+        ev_res = await client.get("/api/admin/ai-monitoring/events?limit=10", headers=admin_headers)
+        assert ev_res.status_code == 200
+        assert isinstance(ev_res.json(), list)
+
+
+@pytest.mark.asyncio
+async def test_last_admin_deletion_protection():
+    """Verify system prevents deleting the last administrator account"""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        login_res = await client.post("/api/admin/login", json={"key": DEV_ADMIN_KEY})
+        admin_token = login_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # Find any admin user ID
+        async with db_manager.get_connection() as conn:
+            res = await conn.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+            row = await res.fetchone()
+
+        if row:
+            admin_uid = str(row[0])
+            del_res = await client.delete(f"/api/admin/users/{admin_uid}", headers=admin_headers)
+            # If there's only 1 admin, it must fail with 400
+            async with db_manager.get_connection() as conn:
+                count_res = await conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+                count = int((await count_res.fetchone())[0] or 0)
+
+            if count <= 1:
+                assert del_res.status_code == 400
+                assert "last administrator" in del_res.json()["detail"].lower()
+

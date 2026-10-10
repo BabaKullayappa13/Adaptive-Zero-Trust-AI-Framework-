@@ -10,6 +10,9 @@ export default function AdminLogoutButton() {
 
   async function logout() {
     setLoading(true)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('admin_token')
+    }
     await fetch('/api/admin/logout', { method: 'POST', cache: 'no-store' }).catch(() => undefined)
     window.history.replaceState(null, '', '/admin/login')
     router.replace('/admin/login?reason=logout')

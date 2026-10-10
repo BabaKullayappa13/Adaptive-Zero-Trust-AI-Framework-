@@ -33,6 +33,9 @@ export default function AdminLoginPage() {
       if (!response.ok) {
         throw new Error(typeof payload?.detail === 'string' ? payload.detail : 'Invalid admin key')
       }
+      if (typeof window !== 'undefined' && payload?.access_token) {
+        localStorage.setItem('admin_token', payload.access_token)
+      }
       router.replace('/admin')
     } catch (loginError) {
       if (loginError instanceof DOMException && loginError.name === 'AbortError') {

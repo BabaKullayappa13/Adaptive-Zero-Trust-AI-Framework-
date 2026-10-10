@@ -36,7 +36,10 @@ class APIClient {
     this.client.interceptors.request.use(async (config) => {
       if (typeof window !== 'undefined') {
         try {
-          const token = await getNeonToken()
+          const adminToken = localStorage.getItem('admin_token')
+          const userToken = await getNeonToken()
+          const isAdminReq = config.url && config.url.includes('/admin')
+          const token = (isAdminReq && adminToken) ? adminToken : (adminToken || userToken)
           if (token) {
             config.headers = config.headers || {}
             config.headers.Authorization = `Bearer ${token}`
@@ -231,6 +234,53 @@ class APIClient {
 
   async deleteAdminUser(userId: string) {
     return this.client.delete(`/api/admin/user/${userId}`)
+  }
+
+  async suspendAdminUser(userId: string, data: { reason: string; duration_hours?: number; suspended_until?: string }) {
+    return this.client.post(`/api/admin/users/${userId}/suspend`, data)
+  }
+
+  async restoreAdminUser(userId: string) {
+    return this.client.post(`/api/admin/users/${userId}/restore`, {})
+  }
+
+  async blockAdminUser(userId: string, data: { reason: string }) {
+    return this.client.post(`/api/admin/users/${userId}/block`, data)
+  }
+
+  async unblockAdminUser(userId: string) {
+    return this.client.post(`/api/admin/users/${userId}/unblock`, {})
+  }
+
+  async revokeAdminUserSessions(userId: string) {
+    return this.client.post(`/api/admin/users/${userId}/revoke-sessions`, {})
+  }
+
+  async downloadActivityStatement(
+    period: string = 'day',
+    format: string = 'csv',
+    userId?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
+    const params = new URLSearchParams()
+    params.set('period', period)
+    params.set('format', format)
+    if (userId) params.set('user_id', userId)
+    if (startDate) params.set('start_date', startDate)
+    if (endDate) params.set('end_date', endDate)
+
+    return this.client.get(`/api/admin/reports/activity-statement?${params.toString()}`, {
+      responseType: format === 'csv' ? 'blob' : 'json'
+    })
+  }
+
+  async getAIMonitoringOverview() {
+    return this.client.get('/api/admin/ai-monitoring/overview')
+  }
+
+  async getAIMonitoringEvents(limit: number = 50) {
+    return this.client.get(`/api/admin/ai-monitoring/events?limit=${limit}`)
   }
 
   async getAdminHealth() {

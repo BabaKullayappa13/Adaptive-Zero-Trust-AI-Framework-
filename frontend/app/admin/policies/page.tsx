@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, LockKeyhole, Plus, RefreshCw, Settings2, ShieldAlert } from 'lucide-react'
 import AdminLogoutButton from '@/components/admin-logout-button'
 import AdminSessionGuard from '@/components/admin-session-guard'
+import AdminSidebar from '@/components/admin/admin-sidebar'
 import { apiClient } from '@/lib/api'
 
 export default function AdminPoliciesPage() {
@@ -53,13 +54,11 @@ export default function AdminPoliciesPage() {
   return (
     <>
       <AdminSessionGuard />
-      <main className="soc-shell min-h-screen px-4 py-6 text-slate-100 sm:px-8 lg:px-16 lg:py-12">
-        <div className="mx-auto max-w-7xl">
-          <Link href="/admin" className="mb-6 inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-cyan-300">
-            <ArrowLeft className="size-3.5" /> Back to Admin Console
-          </Link>
-
-          <header className="mb-8 flex flex-col gap-5 border-b border-white/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col lg:flex-row min-h-screen bg-slate-950 text-slate-100">
+        <AdminSidebar />
+        <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
+          <div className="max-w-7xl mx-auto space-y-8">
+            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="eyebrow text-cyan-300">Access Governance</p>
               <h1 className="text-3xl font-semibold tracking-tight text-white">Zero Trust Policy Management</h1>
@@ -193,6 +192,7 @@ export default function AdminPoliciesPage() {
           )}
         </div>
       </main>
-    </>
-  )
+    </div>
+  </>
+)
 }

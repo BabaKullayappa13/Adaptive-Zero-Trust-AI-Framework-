@@ -13,7 +13,7 @@ function isUsableBackendUrl(value) {
   try {
     const url = new URL(value)
     if (!['http:', 'https:'].includes(url.protocol)) return false
-    if (url.hostname === 'localhost' && process.env.NODE_ENV !== 'development') return false
+    if (url.hostname === 'localhost' && process.env.VERCEL) return false
     if (url.hostname.includes('example.com') || url.hostname === frontendHost) return false
     return true
   } catch {
@@ -21,7 +21,7 @@ function isUsableBackendUrl(value) {
   }
 }
 
-const backendApiUrl = configuredBackendUrls.find(isUsableBackendUrl) || (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "https://adaptive-zero-trust-ai-framework-yh2l.onrender.com")
+const backendApiUrl = configuredBackendUrls.find(isUsableBackendUrl) || (process.env.VERCEL ? "https://adaptive-zero-trust-ai-framework-yh2l.onrender.com" : "http://localhost:8000")
 
 const nextConfig = {
   reactStrictMode: true,

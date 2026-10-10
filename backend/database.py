@@ -673,6 +673,19 @@ class DatabaseManager:
                         email_verified INTEGER DEFAULT 1,
                         email_verified_at TEXT,
                         last_login TEXT,
+                        last_failed_login TEXT,
+                        last_failed_login_reason TEXT,
+                        role TEXT DEFAULT 'operator',
+                        is_active INTEGER DEFAULT 1,
+                        is_suspended INTEGER DEFAULT 0,
+                        suspended_until TEXT,
+                        suspension_reason TEXT,
+                        is_blocked INTEGER DEFAULT 0,
+                        block_reason TEXT,
+                        passkey_enrolled INTEGER DEFAULT 0,
+                        face_enrolled INTEGER DEFAULT 0,
+                        face_biometric_template TEXT,
+                        face_enrolled_at TEXT,
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                     );
@@ -1073,6 +1086,15 @@ class DatabaseManager:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_updated_at TIMESTAMPTZ DEFAULT NOW()",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_failed_login TIMESTAMPTZ",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_failed_login_reason VARCHAR(255)",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until TIMESTAMPTZ",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS suspension_reason TEXT",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS block_reason TEXT",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_enrolled BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS face_enrolled BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS face_biometric_template TEXT",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS face_enrolled_at TIMESTAMPTZ",
                     
                     "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS step_up_required BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS trust_score FLOAT DEFAULT 50",
@@ -1169,7 +1191,16 @@ class DatabaseManager:
                     "ALTER TABLE trust_policies ADD COLUMN status TEXT DEFAULT 'active'",
                     "ALTER TABLE trust_policies ADD COLUMN effective_date TEXT",
                     "ALTER TABLE trust_policies ADD COLUMN updated_at TEXT",
-                    "ALTER TABLE audit_logs ADD COLUMN is_simulation INTEGER DEFAULT 0"
+                    "ALTER TABLE audit_logs ADD COLUMN is_simulation INTEGER DEFAULT 0",
+                    "ALTER TABLE users ADD COLUMN is_suspended INTEGER DEFAULT 0",
+                    "ALTER TABLE users ADD COLUMN suspended_until TEXT",
+                    "ALTER TABLE users ADD COLUMN suspension_reason TEXT",
+                    "ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0",
+                    "ALTER TABLE users ADD COLUMN block_reason TEXT",
+                    "ALTER TABLE users ADD COLUMN passkey_enrolled INTEGER DEFAULT 0",
+                    "ALTER TABLE users ADD COLUMN face_enrolled INTEGER DEFAULT 0",
+                    "ALTER TABLE users ADD COLUMN face_biometric_template TEXT",
+                    "ALTER TABLE users ADD COLUMN face_enrolled_at TEXT"
                 ]
                 for stmt in sqlite_migrations:
                     try:
