@@ -654,6 +654,27 @@ class DatabaseManager:
                         consumed_at TIMESTAMPTZ,
                         status VARCHAR(50) NOT NULL DEFAULT 'PENDING'
                     );
+
+                    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+                        id VARCHAR(255) PRIMARY KEY,
+                        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        public_key TEXT NOT NULL,
+                        sign_count INTEGER NOT NULL DEFAULT 0,
+                        transports TEXT,
+                        nickname VARCHAR(255) DEFAULT 'Biometric Passkey',
+                        aaguid VARCHAR(100),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        last_used_at TIMESTAMPTZ
+                    );
+
+                    CREATE TABLE IF NOT EXISTS webauthn_challenges (
+                        id VARCHAR(255) PRIMARY KEY,
+                        user_id TEXT,
+                        challenge TEXT NOT NULL,
+                        ceremony_type VARCHAR(50) NOT NULL,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
                 """)
             else:
                 await conn.execute("""
@@ -684,7 +705,6 @@ class DatabaseManager:
                         block_reason TEXT,
                         passkey_enrolled INTEGER DEFAULT 0,
                         face_enrolled INTEGER DEFAULT 0,
-                        face_biometric_template TEXT,
                         face_enrolled_at TEXT,
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1066,10 +1086,34 @@ class DatabaseManager:
                         status TEXT DEFAULT 'PENDING',
                         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                     );
+
+                    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        public_key TEXT NOT NULL,
+                        sign_count INTEGER NOT NULL DEFAULT 0,
+                        transports TEXT,
+                        nickname TEXT DEFAULT 'Biometric Passkey',
+                        aaguid TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        last_used_at TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+
+                    CREATE TABLE IF NOT EXISTS webauthn_challenges (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT,
+                        challenge TEXT NOT NULL,
+                        ceremony_type TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    );
                 """)
 
             if self.is_postgres:
                 migration_statements = [
+                    "CREATE TABLE IF NOT EXISTS webauthn_credentials (id VARCHAR(255) PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, public_key TEXT NOT NULL, sign_count INTEGER NOT NULL DEFAULT 0, transports TEXT, nickname VARCHAR(255) DEFAULT 'Biometric Passkey', aaguid VARCHAR(100), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_used_at TIMESTAMPTZ)",
+                    "CREATE TABLE IF NOT EXISTS webauthn_challenges (id VARCHAR(255) PRIMARY KEY, user_id TEXT, challenge TEXT NOT NULL, ceremony_type VARCHAR(50) NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_failed_attempts INTEGER DEFAULT 0",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_locked_until TIMESTAMPTZ",
@@ -1093,7 +1137,6 @@ class DatabaseManager:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS block_reason TEXT",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS passkey_enrolled BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS face_enrolled BOOLEAN DEFAULT FALSE",
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS face_biometric_template TEXT",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS face_enrolled_at TIMESTAMPTZ",
                     
                     "ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS step_up_required BOOLEAN DEFAULT FALSE",
@@ -1199,8 +1242,9 @@ class DatabaseManager:
                     "ALTER TABLE users ADD COLUMN block_reason TEXT",
                     "ALTER TABLE users ADD COLUMN passkey_enrolled INTEGER DEFAULT 0",
                     "ALTER TABLE users ADD COLUMN face_enrolled INTEGER DEFAULT 0",
-                    "ALTER TABLE users ADD COLUMN face_biometric_template TEXT",
-                    "ALTER TABLE users ADD COLUMN face_enrolled_at TEXT"
+                    "ALTER TABLE users ADD COLUMN face_enrolled_at TEXT",
+                    "CREATE TABLE IF NOT EXISTS webauthn_credentials (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, public_key TEXT NOT NULL, sign_count INTEGER DEFAULT 0, transports TEXT, nickname TEXT DEFAULT 'Biometric Passkey', aaguid TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, last_used_at TEXT, FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)",
+                    "CREATE TABLE IF NOT EXISTS webauthn_challenges (id TEXT PRIMARY KEY, user_id TEXT, challenge TEXT NOT NULL, ceremony_type TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)"
                 ]
                 for stmt in sqlite_migrations:
                     try:

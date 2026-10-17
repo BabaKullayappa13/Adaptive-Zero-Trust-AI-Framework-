@@ -17,7 +17,7 @@ import {
   Users,
   FileDown
 } from 'lucide-react'
-import AdminLogoutButton from '@/components/admin-logout-button'
+import AdminHeader from '@/components/admin/admin-header'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
 import AdminLiveMetrics from '@/components/admin-live-metrics'
@@ -73,29 +73,12 @@ export default function AdminPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="mx-auto max-w-7xl space-y-8">
-            <header className="flex flex-col gap-6 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <div className="mb-3 flex items-center gap-3">
-                  <span className="flex size-10 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
-                    <LockKeyhole className="size-5" />
-                  </span>
-                  <p className="eyebrow text-cyan-300">Adaptive Zero-Trust Control Plane</p>
-                </div>
-                <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
-                  Admin Command Center
-                </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                  Centralized command console for user governance, explainable AI monitoring, hybrid cloud gateways, and security auditing.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
-                  <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
-                  Live SOC Connected
-                </span>
-              </div>
-            </header>
+            <AdminHeader
+              title="Admin Command Center"
+              eyebrow="Adaptive Zero-Trust Control Plane"
+              description="Centralized command console for user governance, explainable AI monitoring, hybrid cloud gateways, and security auditing."
+              icon={LockKeyhole}
+            />
 
             <AdminLiveMetrics />
 

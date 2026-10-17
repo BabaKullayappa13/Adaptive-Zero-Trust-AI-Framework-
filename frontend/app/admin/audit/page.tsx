@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { ClipboardList, Database, RefreshCw, ShieldCheck, Search } from 'lucide-react'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
+import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
 
 export default function AdminAuditPage() {
@@ -40,29 +41,21 @@ export default function AdminAuditPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="eyebrow text-amber-300">Administrative Audit Trail</p>
-                <h1 className="text-3xl font-semibold tracking-tight text-white flex items-center gap-3">
-                  <ClipboardList className="size-8 text-amber-400" />
-                  System & Security Audit Logs
-                </h1>
-                <p className="mt-2 text-sm text-slate-400">
-                  Verifiable record of authentication attempts, lifecycle events, Secret PIN verifications, step-up challenges, and policy events.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => void fetchLogs()}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-400/40 hover:text-cyan-200 transition"
-                >
-                  <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh Trail
-                </button>
-              </div>
-            </header>
+            <AdminHeader
+              title="System & Security Audit Logs"
+              eyebrow="Administrative Audit Trail"
+              description="Verifiable record of authentication attempts, lifecycle events, Secret PIN verifications, step-up challenges, and policy events."
+              icon={ClipboardList}
+            >
+              <button
+                onClick={() => void fetchLogs()}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-400/40 hover:text-cyan-200 transition"
+              >
+                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Refresh Trail
+              </button>
+            </AdminHeader>
 
             <section className="soc-panel overflow-hidden">
               <div className="p-5 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

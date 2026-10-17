@@ -61,6 +61,7 @@ interface AuthState {
   login: (email: string, password: string, secretPin?: string, totpCode?: string) => Promise<LoginResult>
   verifySecurePin: (email: string, secretPin: string, challengeToken?: string) => Promise<boolean>
   loginMfaComplete: (email: string, challengeToken?: string, secretPin?: string) => Promise<LoginResult>
+  loginWithPasskey: (email?: string) => Promise<LoginResult>
   verifyPinChallenge: (challengeToken: string, secretPin: string) => Promise<void>
 
   // Recovery & Factor Management
@@ -406,6 +407,64 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })
     } catch (err: any) {
       set({ isLoading: false, error: err.message || 'Verification failed' })
+      throw err
+    }
+  },
+
+  loginWithPasskey: async (email?: string) => {
+    set({ isLoading: true, error: null })
+    try {
+      // 1. Fetch authentication assertion challenge from backend
+      const optionsRes = await fetch('/api/auth/webauthn/login/options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email?.trim() || undefined })
+      })
+      const options = await readApiResponse<any>(optionsRes)
+      if (!optionsRes.ok) {
+        throw new Error(options.detail || options.message || 'Failed to initialize biometric passkey challenge.')
+      }
+
+      // 2. Perform WebAuthn authentication ceremony on client device
+      const { startAuthentication } = await import('@simplewebauthn/browser')
+      const credential = await startAuthentication({ optionsJSON: options })
+
+      // 3. Verify assertion signature with backend (enforces email verification & account active state)
+      const verifyRes = await fetch('/api/auth/webauthn/login/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      })
+      const data = await readApiResponse<any>(verifyRes)
+      if (!verifyRes.ok) {
+        throw new Error(data.detail || data.message || 'Biometric passkey authentication failed.')
+      }
+
+      const token = data.access_token
+      const user = data.user
+      const sessionId = data.session_id
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(TOKEN_KEY, token)
+        if (data.refresh_token) localStorage.setItem(REFRESH_KEY, data.refresh_token)
+        localStorage.setItem(USER_KEY, JSON.stringify(user))
+        if (sessionId) localStorage.setItem(SESSION_KEY, String(sessionId))
+        document.cookie = `access_token=${token}; path=/; max-age=3600; SameSite=Lax`
+      }
+
+      set({
+        user,
+        accessToken: token,
+        sessionId: sessionId || 1,
+        isLoading: false,
+        isInitialized: true,
+        error: null
+      })
+
+      return data
+    } catch (err: any) {
+      const msg = err.message || 'Passkey authentication failed'
+      set({ isLoading: false, error: msg })
       throw err
     }
   },

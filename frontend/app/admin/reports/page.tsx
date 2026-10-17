@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
+import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
 
 type PeriodType = 'hour' | 'day' | 'month' | 'custom'
@@ -125,25 +126,17 @@ export default function AdminReportsPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="eyebrow text-cyan-400">Compliance & Telemetry Reports</p>
-                <h1 className="text-3xl font-semibold tracking-tight text-white flex items-center gap-3">
-                  <FileDown className="size-8 text-cyan-400" />
-                  User Activity Statement & Reports
-                </h1>
-                <p className="mt-2 text-sm text-slate-400">
-                  Export authoritative user session logs, policy decisions, and security events across 1 Hour, 1 Day, or 1 Month intervals.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-300">
-                  <ShieldCheck className="size-3.5" />
-                  Formula Injection Sanitized
-                </span>
-              </div>
-            </header>
+            <AdminHeader
+              title="User Activity Statement & Reports"
+              eyebrow="Compliance & Telemetry Reports"
+              description="Export authoritative user session logs, policy decisions, and security events across 1 Hour, 1 Day, or 1 Month intervals."
+              icon={FileDown}
+            >
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-300">
+                <ShieldCheck className="size-3.5" />
+                Formula Injection Sanitized
+              </span>
+            </AdminHeader>
 
             {successMsg && (
               <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">

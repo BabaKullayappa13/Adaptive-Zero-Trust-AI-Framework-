@@ -12,7 +12,7 @@ async function validAdminSession(value: string | undefined) {
     process.env.ADMIN_ACCESS_KEY ||
     process.env.SECRET_KEY_3 ||
     process.env.ADMIN_ACCESS_KEY_4 ||
-    'adaptive-zero-trust-admin-session-secret-2026'
+    (process.env.NODE_ENV !== 'production' ? 'adaptive-zero-trust-admin-session-secret-2026' : undefined)
   if (!secret) return false
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
   const signatureBytes = new Uint8Array(providedSignature.match(/.{1,2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? [])

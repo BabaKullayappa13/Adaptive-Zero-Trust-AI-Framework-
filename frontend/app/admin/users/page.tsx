@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
+import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
 
 interface UserItem {
@@ -176,29 +177,21 @@ export default function AdminUsersPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="eyebrow text-cyan-400">Identity Governance & Lifecycle Control</p>
-                <h1 className="text-3xl font-semibold tracking-tight text-white flex items-center gap-3">
-                  <Users className="size-8 text-cyan-400" />
-                  Users & Identity Governance
-                </h1>
-                <p className="mt-2 text-sm text-slate-400">
-                  Manage registered operators, enforce suspension and block states, review MFA enrollments, and revoke sessions.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => void fetchUsers()}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-400/40 hover:text-cyan-200 transition"
-                >
-                  <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh Directory
-                </button>
-              </div>
-            </header>
+            <AdminHeader
+              title="Users & Identity Governance"
+              eyebrow="Identity Governance & Lifecycle Control"
+              description="Manage registered operators, enforce suspension and block states, review MFA enrollments, and revoke sessions."
+              icon={Users}
+            >
+              <button
+                onClick={() => void fetchUsers()}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-400/40 hover:text-cyan-200 transition"
+              >
+                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Refresh Directory
+              </button>
+            </AdminHeader>
 
             {actionMsg && (
               <div

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
+import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
 
 export default function AdminAIMonitoringPage() {
@@ -57,29 +58,21 @@ export default function AdminAIMonitoringPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="eyebrow text-cyan-400">Security Operations Center · AI Architecture</p>
-                <h1 className="text-3xl font-semibold tracking-tight text-white flex items-center gap-3">
-                  <BrainCircuit className="size-8 text-cyan-400" />
-                  AI Monitoring Overview
-                </h1>
-                <p className="mt-2 text-sm text-slate-400">
-                  Continuous explainability telemetry, anomaly detection pipelines, and authoritative model evaluation from CICIDS2026.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => void fetchData()}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-400/40 hover:text-cyan-200 transition"
-                >
-                  <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh Telemetry
-                </button>
-              </div>
-            </header>
+            <AdminHeader
+              title="AI Monitoring Overview"
+              eyebrow="Security Operations Center · AI Architecture"
+              description="Continuous explainability telemetry, anomaly detection pipelines, and authoritative model evaluation from CICIDS2026."
+              icon={BrainCircuit}
+            >
+              <button
+                onClick={() => void fetchData()}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-400/40 hover:text-cyan-200 transition"
+              >
+                <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Refresh Telemetry
+              </button>
+            </AdminHeader>
 
             {/* AI Engine Status Metrics */}
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

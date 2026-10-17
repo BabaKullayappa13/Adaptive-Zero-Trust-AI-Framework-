@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
+import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
 
 const fetchReports = () => apiClient.getReports().then((res: any) => res.data)
@@ -100,23 +101,16 @@ export default function AdminSimulationPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="eyebrow text-amber-400">Red-Teaming & Threat Emulation</p>
-                <h1 className="text-3xl font-semibold tracking-tight text-white flex items-center gap-3">
-                  <Flame className="size-8 text-amber-400" />
-                  Attack Simulation & Advanced Analytics
-                </h1>
-                <p className="mt-2 text-sm text-slate-400">
-                  Simulate adversarial tactics against the live Adaptive Zero Trust AI engine and evaluate real-time policy enforcements.
-                </p>
-              </div>
-
-              {/* Tab Navigation */}
-              <div className="flex gap-2">
+            <AdminHeader
+              title="Attack Simulation & Advanced Analytics"
+              eyebrow="Red-Teaming & Threat Emulation"
+              description="Simulate adversarial tactics against the live Adaptive Zero Trust AI engine and evaluate real-time policy enforcements."
+              icon={Flame}
+            >
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setActiveTab('simulation')}
-                  className={`px-3 py-2 text-xs font-semibold rounded-xl border transition ${
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition ${
                     activeTab === 'simulation'
                       ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
                       : 'bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200'
@@ -126,7 +120,7 @@ export default function AdminSimulationPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('reports')}
-                  className={`px-3 py-2 text-xs font-semibold rounded-xl border transition ${
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition ${
                     activeTab === 'reports'
                       ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
                       : 'bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200'
@@ -136,7 +130,7 @@ export default function AdminSimulationPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('docs')}
-                  className={`px-3 py-2 text-xs font-semibold rounded-xl border transition ${
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition ${
                     activeTab === 'docs'
                       ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
                       : 'bg-slate-900 border-white/10 text-slate-400 hover:text-slate-200'
@@ -145,7 +139,7 @@ export default function AdminSimulationPage() {
                   <BookOpen className="size-3.5 inline mr-1.5" /> OpenAPI Docs
                 </button>
               </div>
-            </header>
+            </AdminHeader>
 
             {errorMsg && (
               <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">

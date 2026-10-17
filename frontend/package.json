@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
     "autoprefixer": "^10.4.16",
     "axios": "^1.6.2",
     "date-fns": "^2.30.0",

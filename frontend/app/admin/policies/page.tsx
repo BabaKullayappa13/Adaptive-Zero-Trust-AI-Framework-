@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, LockKeyhole, Plus, RefreshCw, Settings2, ShieldAlert } from 'lucide-react'
-import AdminLogoutButton from '@/components/admin-logout-button'
+import AdminHeader from '@/components/admin/admin-header'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
 import { apiClient } from '@/lib/api'
@@ -58,16 +58,12 @@ export default function AdminPoliciesPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="eyebrow text-cyan-300">Access Governance</p>
-              <h1 className="text-3xl font-semibold tracking-tight text-white">Zero Trust Policy Management</h1>
-              <p className="mt-2 text-sm text-slate-400">
-                Configure adaptive authorization rules, Secret PIN challenge triggers, and session termination thresholds.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
+            <AdminHeader
+              title="Zero Trust Policy Management"
+              eyebrow="Access Governance"
+              description="Configure adaptive authorization rules, Secret PIN challenge triggers, and session termination thresholds."
+              icon={Settings2}
+            >
               <button
                 onClick={() => void fetchPolicies()}
                 disabled={loading}
@@ -83,9 +79,7 @@ export default function AdminPoliciesPage() {
                 <Plus className="size-4" />
                 Add Policy
               </button>
-              <AdminLogoutButton />
-            </div>
-          </header>
+            </AdminHeader>
 
           <section className="space-y-4">
             {policies.map((p) => (

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, BookOpen, CheckCircle2, Download, FileText, RefreshCw, Sparkles, TrendingUp, Trophy } from 'lucide-react'
-import AdminLogoutButton from '@/components/admin-logout-button'
+import AdminHeader from '@/components/admin/admin-header'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import { apiClient } from '@/lib/api'
 
@@ -41,18 +41,13 @@ export default function ResearchReportPage() {
             <ArrowLeft className="size-3.5" /> Back to Admin Console
           </Link>
 
-          <header className="mb-8 flex flex-col gap-5 border-b border-white/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="eyebrow text-cyan-300">Academic Evaluation & Validation</p>
-              <h1 className="text-3xl font-semibold tracking-tight text-white">
-                Base Paper & IEEE Comparative Benchmark
-              </h1>
-              <p className="mt-2 text-sm text-slate-400">
-                Formal experimental comparison of the Proposed Adaptive Zero Trust-AI Framework against the Base Paper and IEEE Standards.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
+          <div className="mb-8">
+            <AdminHeader
+              title="Base Paper & IEEE Comparative Benchmark"
+              eyebrow="Academic Evaluation & Validation"
+              description="Formal experimental comparison of the Proposed Adaptive Zero Trust-AI Framework against the Base Paper and IEEE Standards."
+              icon={BookOpen}
+            >
               <button
                 onClick={() => void fetchData()}
                 disabled={loading}
@@ -61,9 +56,8 @@ export default function ResearchReportPage() {
                 <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
                 Refresh Benchmarks
               </button>
-              <AdminLogoutButton />
-            </div>
-          </header>
+            </AdminHeader>
+          </div>
 
           {/* Research Alignment Header Card */}
           <section className="soc-panel mb-8 border-cyan-400/30 p-6 sm:p-8">

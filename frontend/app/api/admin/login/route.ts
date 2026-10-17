@@ -3,14 +3,17 @@ import { NextResponse } from 'next/server'
 
 const SESSION_TTL_SECONDS = 60 * 60 * 8
 
-function getSessionSecret() {
-  return (
+function getSessionSecret(): string | null {
+  const envSecret =
     process.env.ADMIN_SESSION_SECRET ||
     process.env.ADMIN_ACCESS_KEY ||
     process.env.SECRET_KEY_3 ||
-    process.env.ADMIN_ACCESS_KEY_4 ||
-    'adaptive-zero-trust-admin-session-secret-2026'
-  )
+    process.env.ADMIN_ACCESS_KEY_4
+  if (envSecret) return envSecret
+  if (process.env.NODE_ENV !== 'production') {
+    return 'adaptive-zero-trust-admin-session-secret-2026'
+  }
+  return null
 }
 
 function signature(value: string) {

@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   ArrowRight, CheckCircle2, Cpu, Eye, EyeOff, 
   KeyRound, Lock, LockKeyhole, Mail, RefreshCw, ShieldAlert, 
-  ShieldCheck 
+  ShieldCheck, Fingerprint 
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
 import Link from 'next/link'
@@ -16,7 +16,8 @@ export default function LoginPage() {
   const router = useRouter()
   const { 
     login, verifySecurePin, 
-    loginMfaComplete, isLoading 
+    loginMfaComplete, loginWithPasskey,
+    resendEmailVerification, isLoading 
   } = useAuthStore()
 
   // Form State
@@ -26,6 +27,18 @@ export default function LoginPage() {
   const [localError, setLocalError] = useState('')
   const [localSuccess, setLocalSuccess] = useState('')
   const [emailNotVerified, setEmailNotVerified] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [resendLoading, setResendLoading] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
+  const [passkeyLoading, setPasskeyLoading] = useState(false)
+
+  // Resend cooldown countdown timer
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [resendCooldown])
 
   // Secure PIN State
   const [secretPin, setSecretPin] = useState('')
@@ -43,6 +56,7 @@ export default function LoginPage() {
     setLocalError('')
     setLocalSuccess('')
     setEmailNotVerified(false)
+    setResendMsg('')
 
     if (!email || !password) {
       setLocalError('Please enter your registered email and password.')
@@ -65,10 +79,62 @@ export default function LoginPage() {
       const msg = err.message || 'Invalid email or password.'
       if (msg.toLowerCase().includes('not verified') || msg.toLowerCase().includes('verification link')) {
         setEmailNotVerified(true)
-        setLocalError('Your email address has not yet been verified. Please open the link sent to your inbox.')
+        setLocalError('Your email address has not yet been verified. Please open the link sent to your inbox or enter your verification code.')
       } else {
         setLocalError(msg)
       }
+    }
+  }
+
+  // ==========================================
+  // PASSKEY / BIOMETRIC AUTHENTICATION
+  // ==========================================
+  const handlePasskeyLogin = async () => {
+    setLocalError('')
+    setLocalSuccess('')
+    setEmailNotVerified(false)
+    setResendMsg('')
+    setPasskeyLoading(true)
+
+    try {
+      await loginWithPasskey(email.trim() || undefined)
+      setLocalSuccess('Biometric authentication verified! Establishing Zero Trust session...')
+      setTimeout(() => {
+        router.replace('/dashboard')
+      }, 600)
+    } catch (err: any) {
+      const msg = err.message || 'Passkey authentication failed.'
+      if (msg.toLowerCase().includes('not verified') || msg.toLowerCase().includes('verification link')) {
+        setEmailNotVerified(true)
+        setLocalError('Your email address has not yet been verified. Please check your inbox or enter your verification code.')
+      } else if (msg.includes('NotAllowedError') || msg.includes('cancelled') || msg.includes('timed out')) {
+        setLocalError('Biometric verification was cancelled or timed out. Please try again or use your password.')
+      } else {
+        setLocalError(msg)
+      }
+    } finally {
+      setPasskeyLoading(false)
+    }
+  }
+
+  // ==========================================
+  // RESEND EMAIL VERIFICATION
+  // ==========================================
+  const handleResendVerification = async () => {
+    if (!email) {
+      setLocalError('Please enter your registered email address.')
+      return
+    }
+    setResendLoading(true)
+    setResendMsg('')
+    try {
+      await resendEmailVerification(email.trim())
+      setResendMsg('Verification email resent! Please check your inbox.')
+      setResendCooldown(30)
+    } catch (err: any) {
+      setLocalError(err.message || 'Failed to resend verification email.')
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -222,20 +288,53 @@ export default function LoginPage() {
                   </p>
                 </div>
 
-                {localError && (
-                  <div className="mb-4 flex flex-col gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
-                    <div className="flex items-center gap-2">
-                      <ShieldAlert className="size-4 shrink-0 text-rose-400" />
-                      <span>{localError}</span>
+                {localError && !emailNotVerified && (
+                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                    <ShieldAlert className="size-4 shrink-0 text-rose-400" />
+                    <span>{localError}</span>
+                  </div>
+                )}
+
+                {/* Email Verification Required Dedicated Card */}
+                {emailNotVerified && (
+                  <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldAlert className="size-5 shrink-0 text-amber-400 mt-0.5" />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="font-semibold text-amber-200">Email Verification Required</div>
+                        <p className="text-slate-300 text-xs leading-relaxed">
+                          Account access is restricted until your email address is verified. We sent a verification link to <strong className="text-white">{email}</strong>.
+                        </p>
+                        {resendMsg && (
+                          <div className="text-xs text-emerald-400 font-medium">{resendMsg}</div>
+                        )}
+                        <div className="pt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleResendVerification}
+                            disabled={resendLoading || resendCooldown > 0}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 bg-amber-400/20 px-3 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-400/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {resendLoading ? (
+                              <>
+                                <RefreshCw className="size-3.5 animate-spin" />
+                                Resending...
+                              </>
+                            ) : resendCooldown > 0 ? (
+                              `Resend in ${resendCooldown}s`
+                            ) : (
+                              'Resend Verification Email'
+                            )}
+                          </button>
+                          <Link
+                            href={`/verify-email?email=${encodeURIComponent(email)}`}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-300 hover:text-cyan-200 underline ml-auto"
+                          >
+                            Enter Verification Code &rarr;
+                          </Link>
+                        </div>
+                      </div>
                     </div>
-                    {emailNotVerified && (
-                      <Link 
-                        href={`/verify-email?email=${encodeURIComponent(email)}`}
-                        className="mt-1 inline-flex items-center gap-1 font-semibold text-cyan-300 hover:text-cyan-200 underline"
-                      >
-                        Proceed to Email Verification Page &rarr;
-                      </Link>
-                    )}
                   </div>
                 )}
 
@@ -292,6 +391,37 @@ export default function LoginPage() {
                     )}
                   </button>
                 </form>
+
+                {/* Biometric Passkey Divider & Button */}
+                <div className="relative my-5">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-white/10" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-slate-900/90 px-2 text-slate-400 font-semibold tracking-wider">
+                      Or continue with
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handlePasskeyLogin}
+                  disabled={passkeyLoading || isLoading}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-slate-800/80 hover:bg-slate-800 hover:border-cyan-400/50 py-2.5 text-sm font-semibold text-slate-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {passkeyLoading ? (
+                    <>
+                      <RefreshCw className="size-4 animate-spin text-cyan-400" />
+                      Authenticating Biometrics...
+                    </>
+                  ) : (
+                    <>
+                      <Fingerprint className="size-4 text-cyan-400" />
+                      Continue with Passkey / Biometrics
+                    </>
+                  )}
+                </button>
               </>
             )}
 

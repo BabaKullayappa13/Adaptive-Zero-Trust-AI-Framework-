@@ -16,7 +16,6 @@ import {
   Lock,
   ChevronRight
 } from 'lucide-react'
-import AdminLogoutButton from '@/components/admin-logout-button'
 
 interface NavItem {
   href: string
@@ -85,23 +84,9 @@ export default function AdminSidebar() {
         </nav>
       </div>
 
-      <div className="mt-8 pt-4 border-t border-white/10 space-y-3">
-        <div className="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-xs text-emerald-300">
-          <span className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-            Admin Verified
-          </span>
-          <span className="text-[10px] font-mono text-emerald-400/80">RBAC Active</span>
-        </div>
-        <div className="flex items-center justify-between gap-2 px-1">
-          <Link
-            href="/dashboard"
-            className="text-xs text-slate-400 hover:text-cyan-300 transition"
-          >
-            ← Public View
-          </Link>
-          <AdminLogoutButton />
-        </div>
+      <div className="mt-8 pt-4 border-t border-white/10 px-2 text-[11px] text-slate-500 flex items-center justify-between">
+        <span>Zero-Trust Control Plane</span>
+        <span className="font-mono text-cyan-400/80">v2.0</span>
       </div>
     </aside>
   )

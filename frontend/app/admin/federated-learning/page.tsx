@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Cpu, Database, Network, Play, RefreshCw, Server, ShieldCheck } from 'lucide-react'
-import AdminLogoutButton from '@/components/admin-logout-button'
+import AdminHeader from '@/components/admin/admin-header'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import { apiClient } from '@/lib/api'
 
@@ -49,18 +49,13 @@ export default function AdminFederatedLearningPage() {
             <ArrowLeft className="size-3.5" /> Back to Admin Console
           </Link>
 
-          <header className="mb-8 flex flex-col gap-5 border-b border-white/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="eyebrow text-emerald-300">Decentralized Machine Learning Simulation</p>
-              <h1 className="text-3xl font-semibold tracking-tight text-white">
-                Federated Learning Simulation for Privacy-Preserving Authentication Model Improvement
-              </h1>
-              <p className="mt-2 text-sm text-slate-400">
-                Manage and trigger FedAvg simulation rounds across Private Cloud (DC-West), Public Cloud (AWS-East), and Edge Gateway clients.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
+          <div className="mb-8">
+            <AdminHeader
+              title="Federated Learning Privacy-Preserving Model Improvement"
+              eyebrow="Decentralized Machine Learning Simulation"
+              description="Manage and trigger FedAvg simulation rounds across Private Cloud (DC-West), Public Cloud (AWS-East), and Edge Gateway clients."
+              icon={Network}
+            >
               <button
                 onClick={() => void fetchData()}
                 disabled={loading}
@@ -77,9 +72,8 @@ export default function AdminFederatedLearningPage() {
                 <Play className={`size-3.5 ${training ? 'animate-spin' : ''}`} />
                 {training ? 'Aggregating...' : 'Trigger Simulation Round'}
               </button>
-              <AdminLogoutButton />
-            </div>
-          </header>
+            </AdminHeader>
+          </div>
 
           <section className="soc-panel overflow-hidden">
             <div className="border-b border-white/10 p-5">

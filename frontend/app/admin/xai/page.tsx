@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, BrainCircuit, CheckCircle2, Cpu, RefreshCw, Sparkles, Terminal } from 'lucide-react'
-import AdminLogoutButton from '@/components/admin-logout-button'
+import AdminHeader from '@/components/admin/admin-header'
 import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
 import { apiClient } from '@/lib/api'
@@ -59,16 +59,12 @@ export default function AdminXAIPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="eyebrow text-violet-300">Explainable AI (XAI) Architecture</p>
-              <h1 className="text-3xl font-semibold tracking-tight text-white">Model Decision & Feature Attribution</h1>
-              <p className="mt-2 text-sm text-slate-400">
-                Technical SHAP-aligned mathematical attributions and decision tree paths for Isolation Forest anomaly scoring.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
+            <AdminHeader
+              title="Model Decision & Feature Attribution"
+              eyebrow="Explainable AI (XAI) Architecture"
+              description="Technical SHAP-aligned mathematical attributions and decision tree paths for Isolation Forest anomaly scoring."
+              icon={BrainCircuit}
+            >
               <button
                 onClick={() => void fetchXAI()}
                 disabled={loading}
@@ -77,9 +73,7 @@ export default function AdminXAIPage() {
                 <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
                 Recalculate Attributions
               </button>
-              <AdminLogoutButton />
-            </div>
-          </header>
+            </AdminHeader>
 
           {/* Model Specs */}
           <section className="grid gap-4 sm:grid-cols-4 mb-8">

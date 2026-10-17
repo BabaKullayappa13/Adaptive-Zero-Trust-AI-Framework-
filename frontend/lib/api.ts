@@ -520,6 +520,34 @@ class APIClient {
   async runSimulationScenario(scenario: string, userId?: string) {
     return this.client.post('/api/simulation/scenario', { scenario, user_id: userId })
   }
+
+  // ============================================================
+  // WebAuthn / Biometric Passkeys (FIDO2)
+  // ============================================================
+
+  async getWebAuthnRegistrationOptions() {
+    return this.client.post('/api/auth/webauthn/register/options', {})
+  }
+
+  async verifyWebAuthnRegistration(credential: any, nickname?: string) {
+    return this.client.post('/api/auth/webauthn/register/verify', { credential, nickname })
+  }
+
+  async getWebAuthnLoginOptions(email?: string) {
+    return this.client.post('/api/auth/webauthn/login/options', { email: email?.trim() || undefined })
+  }
+
+  async verifyWebAuthnLogin(credential: any) {
+    return this.client.post('/api/auth/webauthn/login/verify', { credential })
+  }
+
+  async getWebAuthnCredentials() {
+    return this.client.get('/api/auth/webauthn/credentials')
+  }
+
+  async deleteWebAuthnCredential(credentialId: string) {
+    return this.client.delete(`/api/auth/webauthn/credentials/${encodeURIComponent(credentialId)}`)
+  }
 }
 
 export const apiClient = new APIClient()

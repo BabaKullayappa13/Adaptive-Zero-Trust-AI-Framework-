@@ -52,6 +52,7 @@ from hybrid_cloud import HybridCloudService
 from zero_trust_policy import ZeroTrustPolicyEngine
 from research_evaluation import ResearchEvaluationModule
 from ieee_baseline_comparison import IEEEBaselineComparison
+import webauthn_service
 
 NEON_AUTH_URL = (os.getenv("NEON_AUTH_URL") or os.getenv("NEON_AUTH_BASE_URL") or os.getenv("NEXT_PUBLIC_NEON_AUTH_URL", "")).rstrip("/")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
@@ -232,6 +233,18 @@ class AdminSuspendUserRequest(BaseModel):
 
 class AdminBlockUserRequest(BaseModel):
     reason: str
+
+class WebAuthnRegisterVerifyRequest(BaseModel):
+    credential: Dict[str, Any]
+    nickname: Optional[str] = "Biometric Passkey"
+
+class WebAuthnLoginOptionsRequest(BaseModel):
+    email: Optional[str] = None
+
+class WebAuthnLoginVerifyRequest(BaseModel):
+    credential: Dict[str, Any]
+    device_info: Optional[Dict[str, Any]] = None
+    location_info: Optional[Dict[str, Any]] = None
 
 # ============================================================================
 # FASTAPI APPLICATION SETUP
@@ -1301,6 +1314,164 @@ async def verify_pin_challenge(req: PinVerifyRequest, request: Request, conn: Da
         "trust_score": session_res["trust_score"],
         "risk_score": session_res["risk_score"]
     }
+
+
+# ============================================================================
+# WEBAUTHN / BIOMETRIC PASSKEY MFA ENDPOINTS
+# ============================================================================
+
+@app.post("/api/auth/webauthn/register/options", tags=["Passkey & Biometrics"])
+async def webauthn_register_options(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """
+    Generate FIDO2 / WebAuthn registration challenge for enrolling a device
+    biometric passkey (Windows Hello, Apple Face ID, Touch ID, platform authenticator).
+    Never stores or handles raw biometric templates.
+    """
+    user_id = str(current_user["id"])
+    email = current_user.get("email", "")
+    name = current_user.get("name", "")
+    options = await webauthn_service.generate_registration_challenge(
+        user_id=user_id,
+        email=email,
+        name=name,
+        request=request,
+        conn=conn
+    )
+    return options
+
+
+@app.post("/api/auth/webauthn/register/verify", tags=["Passkey & Biometrics"])
+async def webauthn_register_verify(
+    req: WebAuthnRegisterVerifyRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """
+    Verify WebAuthn registration cryptographic response from the platform authenticator.
+    Stores the public key and sign counter; marks passkey_enrolled=TRUE and face_enrolled=TRUE.
+    """
+    user_id = str(current_user["id"])
+    result = await webauthn_service.verify_registration_credential(
+        user_id=user_id,
+        credential=req.credential,
+        request=request,
+        conn=conn,
+        nickname=req.nickname
+    )
+    return result
+
+
+@app.post("/api/auth/webauthn/login/options", tags=["Passkey & Biometrics"])
+async def webauthn_login_options(
+    req: WebAuthnLoginOptionsRequest,
+    request: Request,
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """
+    Generate FIDO2 / WebAuthn authentication assertion challenge for biometric login.
+    """
+    options = await webauthn_service.generate_authentication_challenge(
+        email=req.email,
+        request=request,
+        conn=conn
+    )
+    return options
+
+
+@app.post("/api/auth/webauthn/login/verify", tags=["Passkey & Biometrics"])
+async def webauthn_login_verify(
+    req: WebAuthnLoginVerifyRequest,
+    request: Request,
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """
+    Verify WebAuthn cryptographic assertion from platform authenticator (Face ID / Windows Hello).
+    Strictly verifies email verification status from Neon Auth before granting access.
+    Establishes a continuous Zero Trust session and returns authorized session tokens.
+    """
+    auth_res = await webauthn_service.verify_authentication_credential(
+        credential=req.credential,
+        request=request,
+        conn=conn
+    )
+    user_id = auth_res["user_id"]
+    email = auth_res["email"]
+    user_name = auth_res["name"]
+    user_role = auth_res["role"]
+
+    ip_address = request.client.host if request.client else "127.0.0.1"
+    user_agent = request.headers.get("user-agent", "Mozilla/5.0")
+    device_info = req.device_info or {"user_agent": user_agent}
+    location_info = req.location_info or {}
+
+    # Start Continuous Authentication Session
+    session_res = await continuous_orchestrator.create_session(
+        user_id=user_id,
+        device_info=device_info,
+        location_info=location_info,
+        ip_address=ip_address
+    )
+
+    access_token = create_access_token(
+        user_id=user_id,
+        email=email,
+        role=user_role or "operator",
+        session_id=str(session_res["session_id"])
+    )
+    refresh_token = create_refresh_token(user_id=user_id, session_id=str(session_res["session_id"]))
+
+    await conn.execute("UPDATE users SET last_login = NOW() WHERE id = %s", (user_id,))
+    await conn.commit()
+
+    return {
+        "status": "SUCCESS",
+        "message": "Biometric passkey verified. Zero Trust continuous session active.",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "session_id": session_res["session_id"],
+        "user": {
+            "id": user_id,
+            "email": email,
+            "name": user_name or "Security Operator",
+            "role": user_role or "operator",
+            "mfa_enabled": True,
+            "passkey_enrolled": True,
+            "face_enrolled": True,
+            "email_verified": True
+        },
+        "trust_score": session_res["trust_score"],
+        "risk_score": session_res["risk_score"]
+    }
+
+
+@app.post("/api/auth/webauthn/credentials/list", tags=["Passkey & Biometrics"])
+@app.get("/api/auth/webauthn/credentials", tags=["Passkey & Biometrics"])
+async def webauthn_list_credentials(
+    current_user: dict = Depends(get_current_user),
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """List registered WebAuthn credentials for current authenticated user."""
+    user_id = str(current_user["id"])
+    creds = await webauthn_service.list_user_credentials(user_id, conn)
+    return {"credentials": creds}
+
+
+@app.delete("/api/auth/webauthn/credentials/{credential_id}", tags=["Passkey & Biometrics"])
+async def webauthn_delete_credential(
+    credential_id: str,
+    current_user: dict = Depends(get_current_user),
+    conn: DatabaseConnection = Depends(get_db)
+):
+    """Remove a registered WebAuthn credential."""
+    user_id = str(current_user["id"])
+    await webauthn_service.delete_user_credential(user_id, credential_id, conn)
+    return {"success": True, "message": "Biometric passkey removed."}
 
 
 @app.post("/api/auth/forgot-secure-pin", tags=["Authentication"])
@@ -2756,7 +2927,8 @@ async def get_user_profile(
     uid = str(current_user["id"])
     u_res = await conn.execute(
         """SELECT id, email, name, role, is_active, mfa_enabled, secure_pin_configured, 
-                  last_login, last_failed_login, last_failed_login_reason, created_at 
+                  last_login, last_failed_login, last_failed_login_reason, created_at,
+                  passkey_enrolled, face_enrolled 
            FROM users WHERE CAST(id AS TEXT) = %s""",
         (uid,)
     )
@@ -2773,6 +2945,8 @@ async def get_user_profile(
     last_login = str(u_row[7]) if u_row[7] else None
     last_failed_login = str(u_row[8]) if u_row[8] else None
     last_failed_login_reason = str(u_row[9]) if u_row[9] else "None"
+    passkey_enrolled = bool(u_row[11]) if len(u_row) > 11 and u_row[11] is not None else False
+    face_enrolled = bool(u_row[12]) if len(u_row) > 12 and u_row[12] is not None else False
 
     # Fetch active session
     s_res = await conn.execute(
@@ -2820,8 +2994,11 @@ async def get_user_profile(
         "email": email,
         "role": role,
         "account_status": "ACTIVE" if is_active else "LOCKED",
-        "mfa_status": "CONFIGURED" if (mfa_enabled or pin_configured) else "NOT_CONFIGURED",
+        "mfa_status": "CONFIGURED" if (mfa_enabled or pin_configured or passkey_enrolled or face_enrolled) else "NOT_CONFIGURED",
+        "passkey_enrolled": passkey_enrolled,
+        "face_enrolled": face_enrolled,
         "mfa_methods": [
+            {"method": "Biometric Passkey (Windows Hello / Face ID / Touch ID)", "configured": bool(passkey_enrolled or face_enrolled), "type": "FIDO2 / WebAuthn Biometrics"},
             {"method": "TOTP Authenticator", "configured": mfa_enabled, "type": "Time-based OTP"},
             {"method": "Secret PIN", "configured": pin_configured, "type": "Cryptographic Zero-Trust PIN"},
             {"method": "Password", "configured": True, "type": "Bcrypt Salted Hash"}
