@@ -17,29 +17,48 @@ export function formatTimestampIST(
     includeTimezone?: boolean
   }
 ): string {
-  if (!dateInput) return '—'
+  if (!dateInput || dateInput === 'None' || dateInput === 'null' || dateInput === 'undefined') {
+    return 'Unavailable'
+  }
 
   try {
     const d = new Date(dateInput)
-    if (isNaN(d.getTime())) return 'Invalid date'
+    if (isNaN(d.getTime())) return 'Unavailable'
 
     const includeSeconds = options?.includeSeconds ?? true
     const includeTimezone = options?.includeTimezone ?? true
 
-    const formatted = new Intl.DateTimeFormat('en-IN', {
+    const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: IST_TIMEZONE,
-      year: 'numeric',
-      month: 'short',
       day: '2-digit',
+      month: 'short',
+      year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
       second: includeSeconds ? '2-digit' : undefined,
       hour12: true,
-    }).format(d)
+    })
 
-    return includeTimezone ? `${formatted} IST` : formatted
+    const parts = formatter.formatToParts(d)
+    const p: Record<string, string> = {}
+    for (const part of parts) {
+      p[part.type] = part.value
+    }
+
+    const day = p.day || ''
+    const month = p.month || ''
+    const year = p.year || ''
+    const hour = p.hour || '12'
+    const minute = p.minute || '00'
+    const second = p.second ? `:${p.second}` : ''
+    const period = (p.dayPeriod || 'AM').toUpperCase()
+
+    const timeStr = `${hour}:${minute}${second} ${period}`
+    const dateStr = `${day} ${month} ${year}`
+
+    return includeTimezone ? `${dateStr}, ${timeStr} IST` : `${dateStr}, ${timeStr}`
   } catch {
-    return String(dateInput)
+    return 'Unavailable'
   }
 }
 

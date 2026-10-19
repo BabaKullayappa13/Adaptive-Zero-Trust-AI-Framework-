@@ -24,7 +24,7 @@ import AdminLiveMetrics from '@/components/admin-live-metrics'
 
 const modules = [
   { href: '/admin/security', label: 'Live Threat Feed', description: 'Monitor threat indicators and real-time security events.', icon: ShieldAlert, tone: 'text-rose-400' },
-  { href: '/admin/phase4', label: 'Attack Simulation', description: 'Execute zero-trust red-team simulations and posture assessments.', icon: Flame, tone: 'text-amber-400' },
+  { href: '/admin/phase4', label: 'Threat Emulation', description: 'Simulate adversarial attack vectors against the live Adaptive Zero Trust AI engine to evaluate real-time policy enforcements.', icon: Flame, tone: 'text-amber-400' },
   { href: '/admin/policies', label: 'Security Policies', description: 'Configure adaptive risk and trust thresholds with dynamic enforcement.', icon: Settings2, tone: 'text-cyan-400' },
   { href: '/admin/users', label: 'Users & Identities', description: 'Manage user lifecycle, suspend/block states, and MFA enrollments.', icon: Users, tone: 'text-blue-400' },
   { href: '/admin/sessions', label: 'Active Sessions', description: 'Track continuous session telemetry and trigger step-up challenges.', icon: Radio, tone: 'text-emerald-400' },

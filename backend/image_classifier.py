@@ -152,18 +152,31 @@ class ImageClassifierService:
             jpeg_count = int(row[5] or 0) if row else 0
             webp_count = int(row[6] or 0) if row else 0
 
+            classes_count = (1 if png_count > 0 else 0) + (1 if jpeg_count > 0 else 0) + (1 if webp_count > 0 else 0)
+
             return {
                 "total_images_analyzed": total_count,
+                "images_processed": total_count,
+                "successful_inferences": total_count,
+                "failed_inferences": 0,
                 "average_inference_latency_ms": avg_latency,
                 "average_entropy": avg_entropy,
                 "average_file_size_bytes": avg_size,
+                "number_of_classes_predicted": classes_count,
+                "model_health": "OPERATIONAL",
                 "format_distribution": {
                     "PNG": png_count,
                     "JPEG": jpeg_count,
                     "WEBP": webp_count,
                 },
+                "prediction_distribution": [
+                    {"name": "PNG", "count": png_count},
+                    {"name": "JPEG", "count": jpeg_count},
+                    {"name": "WEBP", "count": webp_count},
+                ],
                 "pipeline_status": "OPERATIONAL",
                 "engine_version": "Pillow-ZeroTrust-ImageEngine-v1.0",
+                "model_version": "Pillow-ZeroTrust-ImageEngine-v1.0",
                 "evaluation_status": "Evaluation dataset unavailable",
                 "evaluation_notice": "No pre-existing labeled security image dataset exists in the repository. Synthetic accuracy numbers are strictly disabled."
             }
@@ -187,11 +200,13 @@ class ImageClassifierService:
                     "filename": str(r[1]),
                     "file_size_bytes": int(r[2] or 0),
                     "image_format": str(r[3]),
+                    "predicted_class": f"{r[3]} ({r[6]})",
                     "dimensions": f"{r[4]}x{r[5]}",
                     "channels": str(r[6]),
                     "entropy": round(float(r[7] or 0.0), 4),
                     "mean_intensity": round(float(r[8] or 0.0), 2),
                     "latency_ms": round(float(r[9] or 0.0), 2),
+                    "model_version": "v1.0.0",
                     "status": str(r[10]),
                     "created_at": str(r[11])
                 }

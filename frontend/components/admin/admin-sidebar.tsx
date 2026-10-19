@@ -27,7 +27,7 @@ interface NavItem {
 export const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/security', label: 'Live Threat Feed', icon: ShieldAlert },
-  { href: '/admin/phase4', label: 'Attack Simulation', icon: Flame },
+  { href: '/admin/phase4', label: 'Threat Emulation', icon: Flame },
   { href: '/admin/policies', label: 'Security Policies', icon: FileCheck2 },
   { href: '/admin/users', label: 'Users & Identities', icon: Users },
   { href: '/admin/sessions', label: 'Active Sessions', icon: Radio },

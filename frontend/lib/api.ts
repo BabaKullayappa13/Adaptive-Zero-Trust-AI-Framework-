@@ -342,9 +342,13 @@ class APIClient {
     return this.client.post('/api/security/recalculate', data || {})
   }
 
-  async getAuditLogs(userId?: string, limit: number = 50) {
-    const url = userId ? `/api/audit/logs/${userId}?limit=${limit}` : `/api/audit/logs?limit=${limit}`
-    return this.client.get(url)
+  async getAuditLogs(userId?: string, limit: number = 50, timeRange?: string, sortOrder?: string) {
+    const params = new URLSearchParams()
+    params.set('limit', String(limit))
+    if (timeRange && timeRange !== 'all') params.set('time_range', timeRange)
+    if (sortOrder) params.set('sort_order', sortOrder)
+    const base = userId ? `/api/audit/logs/${userId}` : '/api/audit/logs'
+    return this.client.get(`${base}?${params.toString()}`)
   }
 
   // ============================================================
