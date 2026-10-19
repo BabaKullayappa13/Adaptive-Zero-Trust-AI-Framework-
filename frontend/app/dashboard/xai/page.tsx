@@ -43,44 +43,37 @@ export default function UserXAIPage() {
         user_id: user?.id,
       })
       const data = res.data
-      const reasons = Array.isArray(data.contributing_factors)
+      const reasons = Array.isArray(data.user_explanation?.reasons)
+        ? data.user_explanation.reasons
+        : Array.isArray(data.contributing_factors)
         ? data.contributing_factors.map((f: any) =>
             typeof f === 'string' ? f : f.factor || f.name || JSON.stringify(f)
           )
         : []
 
-      const featureList = data.feature_contributions
+      const featureList = Array.isArray(data.feature_importance) && data.feature_importance.length > 0
+        ? data.feature_importance
+        : data.feature_contributions && Object.keys(data.feature_contributions).length > 0
         ? Object.entries(data.feature_contributions).map(([feature, val]) => ({
-            feature,
-            contribution_percent:
-              Math.round(Number(val) * 100) || Math.round(Number(val)) || 15,
+            feature: feature.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            contribution_percent: Math.round(Number(val) * 100) || Math.round(Number(val)) || 0,
           }))
-        : [
-            { feature: 'Device Hardware Trust', contribution_percent: 32 },
-            { feature: 'Behavioral Kinematics Pattern', contribution_percent: 28 },
-            { feature: 'Secret PIN Authentication Posture', contribution_percent: 24 },
-            { feature: 'Network IP & Geo Stability', contribution_percent: 16 },
-          ]
+        : []
 
       setCurrentExplanation({
         decision: data.decision || 'ALLOW',
-        risk_score: data.risk_score ?? 15,
-        trust_score: data.trust_score ?? 85,
-        confidence_score: data.confidence_score ?? 94.2,
-        model_version: data.model_version || 'XAI-IsolationForest-GBM-v2.1',
+        risk_score: data.risk_score ?? 0,
+        trust_score: data.trust_score ?? 100,
+        confidence_score: data.confidence_score ?? 95.0,
+        model_version: data.model_version || 'IsolationForest-v2.1',
         action_required: data.action_required || 'CONTINUE_MONITORING',
+        dominant_risk_factor: data.dominant_risk_factor || 'none',
         user_explanation: {
           summary:
+            data.user_explanation?.summary ||
             data.explanation ||
             'Access dynamically validated against behavioral baseline and Zero Trust security policies.',
-          reasons:
-            reasons.length > 0
-              ? reasons
-              : [
-                  'Identity verified with 6-digit permanent Secure PIN MFA',
-                  'Keystroke and mouse dynamics match established user baseline',
-                  'No impossible travel or suspicious proxy network detected',
-                ],
+          reasons: reasons,
         },
         feature_importance: featureList,
       })

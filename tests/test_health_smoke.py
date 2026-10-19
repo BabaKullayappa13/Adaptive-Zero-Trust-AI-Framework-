@@ -1,7 +1,11 @@
-"""Smoke tests for the public health contract and authentication route wiring."""
-
+import sys
+from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+backend_dir = str(Path(__file__).resolve().parent.parent / "backend")
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
 
 from main import app
 

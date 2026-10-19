@@ -17,6 +17,7 @@ import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
 import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
+import { formatTimestampIST } from '@/lib/date-utils'
 
 type PeriodType = 'hour' | 'day' | 'month' | 'custom'
 type FormatType = 'csv' | 'json'
@@ -332,7 +333,7 @@ export default function AdminReportsPage() {
                       previewRecords.map((r, i) => (
                         <tr key={r.event_id || i} className="hover:bg-white/[.02]">
                           <td className="px-5 py-3 font-mono text-slate-400">
-                            {r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A'}
+                            {formatTimestampIST(r.timestamp)}
                           </td>
                           <td className="px-5 py-3 font-mono text-cyan-300">
                             {r.email || r.user_id || 'System'}

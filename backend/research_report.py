@@ -1,6 +1,6 @@
 """Research comparison report generation."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import statistics
 
@@ -62,7 +62,7 @@ class ResearchComparisonReport:
     ) -> str:
         """Generate a markdown research comparison report."""
         
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         
         report = f"""# {report_name}
 

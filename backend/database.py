@@ -237,6 +237,17 @@ class DatabaseManager:
                 if self._pool_queue and not self._pool_queue.empty():
                     raw_conn = self._pool_queue.get_nowait()
                 
+                if raw_conn:
+                    try:
+                        # Validate live connection (handles Neon serverless scale-to-zero)
+                        await raw_conn.execute("SELECT 1")
+                    except Exception:
+                        try:
+                            await raw_conn.close()
+                        except Exception:
+                            pass
+                        raw_conn = None
+
                 if not raw_conn or getattr(raw_conn, 'broken', False) or getattr(raw_conn, 'closed', False):
                     raw_conn = await self._create_pg_connection()
 
@@ -627,6 +638,22 @@ class DatabaseManager:
                         latency_ms FLOAT DEFAULT 0.0,
                         status_code INTEGER DEFAULT 200,
                         is_simulation BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
+                    CREATE TABLE IF NOT EXISTS image_inference_records (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        filename VARCHAR(255) NOT NULL,
+                        file_size_bytes INTEGER NOT NULL,
+                        image_format VARCHAR(50) NOT NULL,
+                        width INTEGER NOT NULL,
+                        height INTEGER NOT NULL,
+                        channels VARCHAR(50) NOT NULL,
+                        entropy FLOAT DEFAULT 0.0,
+                        mean_intensity FLOAT DEFAULT 0.0,
+                        inference_latency_ms FLOAT DEFAULT 0.0,
+                        analysis_status VARCHAR(50) DEFAULT 'PROCESSED',
+                        details JSONB DEFAULT '{}'::jsonb,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
 
@@ -1056,6 +1083,23 @@ class DatabaseManager:
                         latency_ms REAL DEFAULT 0,
                         status_code INTEGER DEFAULT 200,
                         is_simulation INTEGER DEFAULT 0,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS image_inference_records (
+                        id TEXT PRIMARY KEY,
+                        filename TEXT NOT NULL,
+                        file_size_bytes INTEGER NOT NULL,
+                        image_format TEXT NOT NULL,
+                        width INTEGER NOT NULL,
+                        height INTEGER NOT NULL,
+                        channels TEXT NOT NULL,
+                        entropy REAL DEFAULT 0,
+                        mean_intensity REAL DEFAULT 0,
+                        inference_latency_ms REAL DEFAULT 0,
+                        analysis_status TEXT DEFAULT 'PROCESSED',
+                        details TEXT DEFAULT '{}',
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                     );
                 """)

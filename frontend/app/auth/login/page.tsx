@@ -5,18 +5,27 @@ import { useRouter } from 'next/navigation'
 import { 
   ArrowRight, CheckCircle2, Cpu, Eye, EyeOff, 
   KeyRound, Lock, LockKeyhole, Mail, RefreshCw, ShieldAlert, 
-  ShieldCheck, Fingerprint 
+  ShieldCheck, Fingerprint, AlertTriangle, XCircle, Activity 
 } from 'lucide-react'
-import { useAuthStore } from '@/lib/auth-store'
+import { useAuthStore, type LoginEvaluationData } from '@/lib/auth-store'
+import { continuousCollector } from '@/lib/continuous-auth'
 import Link from 'next/link'
 
 type LoginStep = 'CREDENTIALS' | 'SECURE_PIN' | 'AI_EVALUATION'
+type EvaluationState = 
+  | 'EVALUATION_IN_PROGRESS' 
+  | 'EVALUATION_SUCCESSFUL' 
+  | 'NORMAL_ACTIVITY_DETECTED' 
+  | 'ANOMALOUS_ACTIVITY_DETECTED' 
+  | 'ACCESS_RESTRICTED_BY_POLICY' 
+  | 'MODEL_UNAVAILABLE' 
+  | 'EVALUATION_FAILED'
 
 export default function LoginPage() {
   const router = useRouter()
   const { 
     login, verifySecurePin, 
-    loginMfaComplete, loginWithPasskey,
+    loginMfaComplete,
     resendEmailVerification, isLoading 
   } = useAuthStore()
 
@@ -30,7 +39,6 @@ export default function LoginPage() {
   const [resendCooldown, setResendCooldown] = useState(0)
   const [resendLoading, setResendLoading] = useState(false)
   const [resendMsg, setResendMsg] = useState('')
-  const [passkeyLoading, setPasskeyLoading] = useState(false)
 
   // Resend cooldown countdown timer
   useEffect(() => {
@@ -47,6 +55,16 @@ export default function LoginPage() {
   // AI Evaluation Metrics State
   const [evalProgress, setEvalProgress] = useState(0)
   const [evalStatus, setEvalStatus] = useState('Initializing context telemetry...')
+  const [evaluationState, setEvaluationState] = useState<EvaluationState>('EVALUATION_IN_PROGRESS')
+  const [evaluationData, setEvaluationData] = useState<LoginEvaluationData | null>(null)
+
+  // Start continuous telemetry tracking on mount to record real behavioral keystroke/mouse dynamics during login
+  useEffect(() => {
+    continuousCollector.startListening()
+    return () => {
+      continuousCollector.stop()
+    }
+  }, [])
 
   // ==========================================
   // STEP 1: CREDENTIALS (Email & Password)
@@ -87,37 +105,6 @@ export default function LoginPage() {
   }
 
   // ==========================================
-  // PASSKEY / BIOMETRIC AUTHENTICATION
-  // ==========================================
-  const handlePasskeyLogin = async () => {
-    setLocalError('')
-    setLocalSuccess('')
-    setEmailNotVerified(false)
-    setResendMsg('')
-    setPasskeyLoading(true)
-
-    try {
-      await loginWithPasskey(email.trim() || undefined)
-      setLocalSuccess('Biometric authentication verified! Establishing Zero Trust session...')
-      setTimeout(() => {
-        router.replace('/dashboard')
-      }, 600)
-    } catch (err: any) {
-      const msg = err.message || 'Passkey authentication failed.'
-      if (msg.toLowerCase().includes('not verified') || msg.toLowerCase().includes('verification link')) {
-        setEmailNotVerified(true)
-        setLocalError('Your email address has not yet been verified. Please check your inbox or enter your verification code.')
-      } else if (msg.includes('NotAllowedError') || msg.includes('cancelled') || msg.includes('timed out')) {
-        setLocalError('Biometric verification was cancelled or timed out. Please try again or use your password.')
-      } else {
-        setLocalError(msg)
-      }
-    } finally {
-      setPasskeyLoading(false)
-    }
-  }
-
-  // ==========================================
   // RESEND EMAIL VERIFICATION
   // ==========================================
   const handleResendVerification = async () => {
@@ -139,7 +126,7 @@ export default function LoginPage() {
   }
 
   // ==========================================
-  // STEP 2: SECURE PIN VERIFICATION (Primary MFA)
+  // STEP 2 & 3: SECURE PIN & CONTINUOUS AI EVALUATION
   // ==========================================
   const handleSecurePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -152,46 +139,61 @@ export default function LoginPage() {
     }
 
     try {
-      await verifySecurePin(email.trim(), secretPin.trim())
-      
-      // Advance to Step 3: Continuous AI & Zero Trust Evaluation
       setCurrentStep('AI_EVALUATION')
-      runAIEvaluation()
-    } catch (err: any) {
-      setLocalError(err.message || 'Incorrect Secure PIN. Please try again.')
-    }
-  }
+      setEvaluationState('EVALUATION_IN_PROGRESS')
+      setEvalProgress(35)
+      setEvalStatus('Verifying cryptographic Secure PIN and client context...')
 
-  // ==========================================
-  // STEP 3: AI & ZERO TRUST CONTINUOUS EVALUATION
-  // ==========================================
-  const runAIEvaluation = () => {
-    setEvalProgress(20)
-    setEvalStatus('Analyzing client context & behavioral telemetry...')
+      await verifySecurePin(email.trim(), secretPin.trim())
 
-    setTimeout(() => {
-      setEvalProgress(50)
-      setEvalStatus('Running Isolation Forest Machine Learning Anomaly Detection...')
-    }, 600)
+      setEvalProgress(70)
+      setEvalStatus('Running Isolation Forest Machine Learning & Zero Trust Policy Engine...')
 
-    setTimeout(() => {
-      setEvalProgress(80)
-      setEvalStatus('Evaluating Zero Trust Hybrid Cloud Policy Decision...')
-    }, 1200)
+      const telemetrySnapshot = continuousCollector.getTelemetrySnapshot()
+      const res = await loginMfaComplete(email.trim(), undefined, secretPin.trim(), telemetrySnapshot)
 
-    setTimeout(async () => {
-      try {
+      const evalData = res.evaluation
+      if (evalData) {
+        setEvaluationData(evalData)
         setEvalProgress(100)
-        setEvalStatus('Access Granted - Zero Trust Continuous Session Active')
-        await loginMfaComplete(email.trim(), undefined, secretPin.trim())
+
+        // Evaluate genuine status based on backend model & policy results
+        if (evalData.policy_decision === 'DENY' || evalData.status === 'ACCESS_RESTRICTED_BY_POLICY') {
+          setEvaluationState('ACCESS_RESTRICTED_BY_POLICY')
+          setEvalStatus('Access restricted by configured Zero Trust policy.')
+          return
+        }
+
+        if (evalData.model_status !== 'OPERATIONAL' || evalData.status === 'MODEL_UNAVAILABLE') {
+          setEvaluationState('MODEL_UNAVAILABLE')
+          setEvalStatus('ML model unavailable — Zero Trust policy evaluated via rule fallback.')
+        } else if (evalData.ai_anomaly_status === 'ANOMALOUS_BEHAVIOR' || evalData.ai_anomaly_score >= 60) {
+          setEvaluationState('ANOMALOUS_ACTIVITY_DETECTED')
+          setEvalStatus('Anomalous cadence detected by Isolation Forest.')
+        } else {
+          setEvaluationState('NORMAL_ACTIVITY_DETECTED')
+          setEvalStatus('Normal activity cadence verified. Zero Trust continuous session active.')
+        }
+
         setTimeout(() => {
           router.replace('/dashboard')
-        }, 800)
-      } catch (err: any) {
-        setLocalError(err.message || 'Failed to establish Zero Trust session.')
-        setCurrentStep('CREDENTIALS')
+        }, 1200)
+      } else {
+        setEvalProgress(100)
+        setEvaluationState('EVALUATION_SUCCESSFUL')
+        setEvalStatus('Access Granted - Zero Trust Continuous Session Active')
+        setTimeout(() => {
+          router.replace('/dashboard')
+        }, 600)
       }
-    }, 1800)
+    } catch (err: any) {
+      setEvaluationState('EVALUATION_FAILED')
+      setEvalStatus(err.message || 'Evaluation failed. Authentication rejected.')
+      setLocalError(err.message || 'Incorrect Secure PIN or Zero Trust verification failed.')
+      setTimeout(() => {
+        setCurrentStep('SECURE_PIN')
+      }, 2500)
+    }
   }
 
   const stepsList = [
@@ -391,37 +393,6 @@ export default function LoginPage() {
                     )}
                   </button>
                 </form>
-
-                {/* Biometric Passkey Divider & Button */}
-                <div className="relative my-5">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-white/10" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-slate-900/90 px-2 text-slate-400 font-semibold tracking-wider">
-                      Or continue with
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handlePasskeyLogin}
-                  disabled={passkeyLoading || isLoading}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-slate-800/80 hover:bg-slate-800 hover:border-cyan-400/50 py-2.5 text-sm font-semibold text-slate-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {passkeyLoading ? (
-                    <>
-                      <RefreshCw className="size-4 animate-spin text-cyan-400" />
-                      Authenticating Biometrics...
-                    </>
-                  ) : (
-                    <>
-                      <Fingerprint className="size-4 text-cyan-400" />
-                      Continue with Passkey / Biometrics
-                    </>
-                  )}
-                </button>
               </>
             )}
 
@@ -494,38 +465,173 @@ export default function LoginPage() {
 
             {/* Step 3: AI & Zero Trust Evaluation */}
             {currentStep === 'AI_EVALUATION' && (
-              <div className="py-6 text-center">
-                <div className="relative mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl border border-cyan-400/40 bg-cyan-950/40 text-cyan-300">
-                  <Cpu className="size-8 animate-pulse text-cyan-300" />
-                  <span className="absolute -top-1 -right-1 flex size-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full size-3 bg-cyan-500"></span>
-                  </span>
+              <div className="py-4 text-center">
+                <div className={`relative mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl border transition-all ${
+                  evaluationState === 'NORMAL_ACTIVITY_DETECTED' || evaluationState === 'EVALUATION_SUCCESSFUL'
+                    ? 'border-emerald-400/40 bg-emerald-950/40 text-emerald-300'
+                    : evaluationState === 'ANOMALOUS_ACTIVITY_DETECTED'
+                    ? 'border-amber-400/40 bg-amber-950/40 text-amber-300'
+                    : evaluationState === 'ACCESS_RESTRICTED_BY_POLICY' || evaluationState === 'EVALUATION_FAILED'
+                    ? 'border-rose-400/40 bg-rose-950/40 text-rose-300'
+                    : evaluationState === 'MODEL_UNAVAILABLE'
+                    ? 'border-yellow-400/40 bg-yellow-950/40 text-yellow-300'
+                    : 'border-cyan-400/40 bg-cyan-950/40 text-cyan-300'
+                }`}>
+                  {evaluationState === 'EVALUATION_IN_PROGRESS' && (
+                    <>
+                      <Cpu className="size-8 animate-pulse text-cyan-300" />
+                      <span className="absolute -top-1 -right-1 flex size-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full size-3 bg-cyan-500"></span>
+                      </span>
+                    </>
+                  )}
+                  {(evaluationState === 'NORMAL_ACTIVITY_DETECTED' || evaluationState === 'EVALUATION_SUCCESSFUL') && (
+                    <ShieldCheck className="size-8 text-emerald-400" />
+                  )}
+                  {evaluationState === 'ANOMALOUS_ACTIVITY_DETECTED' && (
+                    <ShieldAlert className="size-8 text-amber-400" />
+                  )}
+                  {(evaluationState === 'ACCESS_RESTRICTED_BY_POLICY' || evaluationState === 'EVALUATION_FAILED') && (
+                    <XCircle className="size-8 text-rose-400" />
+                  )}
+                  {evaluationState === 'MODEL_UNAVAILABLE' && (
+                    <AlertTriangle className="size-8 text-yellow-400" />
+                  )}
                 </div>
 
                 <h2 className="text-xl font-bold text-slate-100">Zero Trust AI Evaluation</h2>
-                <p className="mt-2 text-xs text-cyan-300 font-mono">
+                
+                {/* State Label Pill */}
+                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-mono font-medium border border-white/10 bg-white/[.03]">
+                  <span className={`size-2 rounded-full ${
+                    evaluationState === 'NORMAL_ACTIVITY_DETECTED' || evaluationState === 'EVALUATION_SUCCESSFUL'
+                      ? 'bg-emerald-400'
+                      : evaluationState === 'ANOMALOUS_ACTIVITY_DETECTED'
+                      ? 'bg-amber-400'
+                      : evaluationState === 'ACCESS_RESTRICTED_BY_POLICY' || evaluationState === 'EVALUATION_FAILED'
+                      ? 'bg-rose-400'
+                      : evaluationState === 'MODEL_UNAVAILABLE'
+                      ? 'bg-yellow-400'
+                      : 'bg-cyan-400 animate-pulse'
+                  }`} />
+                  <span className="text-slate-300">
+                    {evaluationState === 'EVALUATION_IN_PROGRESS' && 'Evaluation in progress'}
+                    {evaluationState === 'EVALUATION_SUCCESSFUL' && 'Evaluation successful'}
+                    {evaluationState === 'NORMAL_ACTIVITY_DETECTED' && 'Normal activity detected'}
+                    {evaluationState === 'ANOMALOUS_ACTIVITY_DETECTED' && 'Anomalous activity detected'}
+                    {evaluationState === 'ACCESS_RESTRICTED_BY_POLICY' && 'Access restricted by policy'}
+                    {evaluationState === 'MODEL_UNAVAILABLE' && 'Model unavailable'}
+                    {evaluationState === 'EVALUATION_FAILED' && 'Evaluation failed'}
+                  </span>
+                </div>
+
+                <p className="mt-2 text-xs text-slate-400 font-mono">
                   {evalStatus}
                 </p>
 
-                {/* Progress bar */}
-                <div className="mt-6 w-full rounded-full bg-slate-800 h-2 overflow-hidden">
+                {/* Dynamic Progress Bar */}
+                <div className="mt-4 w-full rounded-full bg-slate-800 h-1.5 overflow-hidden">
                   <div 
-                    className="bg-cyan-400 h-full transition-all duration-300"
+                    className={`h-full transition-all duration-300 ${
+                      evaluationState === 'NORMAL_ACTIVITY_DETECTED' || evaluationState === 'EVALUATION_SUCCESSFUL'
+                        ? 'bg-emerald-400'
+                        : evaluationState === 'ANOMALOUS_ACTIVITY_DETECTED'
+                        ? 'bg-amber-400'
+                        : evaluationState === 'ACCESS_RESTRICTED_BY_POLICY' || evaluationState === 'EVALUATION_FAILED'
+                        ? 'bg-rose-500'
+                        : evaluationState === 'MODEL_UNAVAILABLE'
+                        ? 'bg-yellow-400'
+                        : 'bg-cyan-400'
+                    }`}
                     style={{ width: `${evalProgress}%` }}
                   />
                 </div>
 
-                <div className="mt-6 grid grid-cols-2 gap-3 text-[11px] text-slate-400 text-left">
+                {/* Real Verified Evaluation Metrics Grid */}
+                <div className="mt-5 grid grid-cols-2 gap-2.5 text-[11px] text-slate-400 text-left">
                   <div className="rounded-xl border border-white/5 bg-white/[.02] p-2.5">
-                    <span className="text-slate-500 block">AI Anomaly Status</span>
-                    <span className="text-emerald-300 font-mono">NORMAL_CADENCE</span>
+                    <span className="text-slate-500 block text-[10px] uppercase tracking-wider">AI Anomaly Status</span>
+                    {evaluationData ? (
+                      <span className={`font-mono font-semibold ${
+                        evaluationData.ai_anomaly_status === 'NORMAL_CADENCE' ? 'text-emerald-300' : 'text-amber-300'
+                      }`}>
+                        {evaluationData.ai_anomaly_status}
+                      </span>
+                    ) : evaluationState === 'MODEL_UNAVAILABLE' ? (
+                      <span className="text-yellow-400 font-mono">UNAVAILABLE</span>
+                    ) : evaluationState === 'EVALUATION_FAILED' ? (
+                      <span className="text-rose-400 font-mono">ERROR</span>
+                    ) : (
+                      <span className="text-cyan-300/80 font-mono animate-pulse">EVALUATING...</span>
+                    )}
                   </div>
+
                   <div className="rounded-xl border border-white/5 bg-white/[.02] p-2.5">
-                    <span className="text-slate-500 block">Trust Level</span>
-                    <span className="text-cyan-300 font-mono">ELEVATED_TRUST (94%)</span>
+                    <span className="text-slate-500 block text-[10px] uppercase tracking-wider">Trust Level</span>
+                    {evaluationData ? (
+                      <span className={`font-mono font-semibold ${
+                        evaluationData.trust_score >= 80 ? 'text-cyan-300' : evaluationData.trust_score >= 50 ? 'text-amber-300' : 'text-rose-300'
+                      }`}>
+                        {evaluationData.trust_level} ({Math.round(evaluationData.trust_score)}%)
+                      </span>
+                    ) : evaluationState === 'MODEL_UNAVAILABLE' ? (
+                      <span className="text-yellow-400 font-mono">DEGRADED_TRUST</span>
+                    ) : evaluationState === 'EVALUATION_FAILED' ? (
+                      <span className="text-rose-400 font-mono">REVOKED (0%)</span>
+                    ) : (
+                      <span className="text-cyan-300/80 font-mono animate-pulse">CALCULATING...</span>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-white/5 bg-white/[.02] p-2.5">
+                    <span className="text-slate-500 block text-[10px] uppercase tracking-wider">Policy Decision</span>
+                    <span className="font-mono text-slate-200">
+                      {evaluationData ? evaluationData.policy_decision : 'EVALUATING...'}
+                    </span>
+                  </div>
+
+                  <div className="rounded-xl border border-white/5 bg-white/[.02] p-2.5">
+                    <span className="text-slate-500 block text-[10px] uppercase tracking-wider">Model Status</span>
+                    <span className="font-mono text-slate-200">
+                      {evaluationData ? `${evaluationData.model_version} (${evaluationData.model_status})` : 'CHECKING...'}
+                    </span>
                   </div>
                 </div>
+
+                {/* Explicit Reasons from Isolation Forest & Zero Trust Policy Engine */}
+                {evaluationData?.reasons && evaluationData.reasons.length > 0 && (
+                  <div className="mt-3 rounded-xl border border-white/5 bg-white/[.015] p-2.5 text-left text-[11px] text-slate-400 space-y-1">
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 block">Verification Signals:</span>
+                    {evaluationData.reasons.map((r, i) => (
+                      <div key={i} className="flex items-center gap-1.5 text-slate-300">
+                        <span className="text-cyan-400 text-xs">•</span>
+                        <span>{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Policy Denial / Error Banner */}
+                {evaluationState === 'ACCESS_RESTRICTED_BY_POLICY' && (
+                  <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300 text-left">
+                    <p className="font-semibold">Access Denied by Policy Engine</p>
+                    <p className="mt-1 text-slate-400 text-[11px]">
+                      Your request violates Zero Trust risk thresholds. Contact your security administrator to request access.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentStep('CREDENTIALS')
+                        setEvaluationState('EVALUATION_IN_PROGRESS')
+                        setEvaluationData(null)
+                      }}
+                      className="mt-3 w-full rounded-lg bg-rose-500/20 py-1.5 text-center text-xs font-semibold text-rose-200 hover:bg-rose-500/30"
+                    >
+                      Return to Sign In
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

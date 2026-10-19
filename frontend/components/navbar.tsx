@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Activity, Bell, ChevronRight, ClipboardList, Cloud, LayoutDashboard, LockKeyhole, LogOut, Network, Settings, ShieldCheck, SlidersHorizontal, Sparkles, User as UserIcon } from 'lucide-react'
 import UserProfileModal from './user-profile-modal'
 
-interface NavbarProps { user: { email?: string }; onLogout: () => void }
+interface NavbarProps { user: { email?: string; role?: string }; onLogout: () => void }
 const links = [
   { href: '/dashboard', label: 'Command Center', icon: LayoutDashboard },
   { href: '/dashboard/continuous-authentication', label: 'Continuous Trust Monitor', icon: LockKeyhole },
@@ -62,14 +62,16 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
           </nav>
         </div>
 
-        <Link
-          href="/admin"
-          className="mt-4 flex min-h-11 items-center gap-3 rounded-xl border border-cyan-300/15 bg-cyan-300/[.06] px-3 text-xs font-semibold text-cyan-200 hover:border-cyan-300/35"
-        >
-          <Settings className="size-4" />
-          Admin Command Center
-          <ChevronRight className="ml-auto size-4" />
-        </Link>
+        {user?.role === 'admin' && (
+          <Link
+            href="/admin"
+            className="mt-4 flex min-h-11 items-center gap-3 rounded-xl border border-cyan-300/15 bg-cyan-300/[.06] px-3 text-xs font-semibold text-cyan-200 hover:border-cyan-300/35"
+          >
+            <Settings className="size-4" />
+            Admin Command Center
+            <ChevronRight className="ml-auto size-4" />
+          </Link>
+        )}
 
         {/* User Profile Bar - Clickable to open 8-part Profile Modal */}
         <div className="mt-4 flex items-center gap-2 border-t border-white/[.08] pt-4">

@@ -2,7 +2,7 @@
 
 import secrets
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 from email_service import EmailDeliveryError, send_password_reset_email
@@ -33,7 +33,8 @@ class PasswordResetService:
                 # Generate reset token
                 token = secrets.token_urlsafe(32)
                 token_hash = hashlib.sha256(token.encode()).hexdigest()
-                expires_at = datetime.utcnow() + timedelta(hours=1)
+                now_utc = datetime.now(timezone.utc)
+                expires_at = now_utc + timedelta(hours=1)
                 
                 # Expired requests no longer count as active; remove them before
                 # inserting the new token protected by the unique active index.
@@ -45,7 +46,7 @@ class PasswordResetService:
                     """INSERT INTO password_reset_tokens
                        (user_id, token_hash, expires_at, created_at)
                        VALUES (%s, %s, %s, %s)""",
-                    (user_id, token_hash, expires_at, datetime.utcnow())
+                    (user_id, token_hash, expires_at, now_utc)
                 )
                 await conn.commit()
 

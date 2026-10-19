@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 import psycopg
 from psycopg import AsyncConnection
@@ -13,7 +13,7 @@ class ResearchDashboard:
     async def get_authentication_trends(self, days: int = 30) -> Dict:
         """Get authentication trends over time"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             result = await conn.execute("""
                 SELECT 
@@ -47,7 +47,7 @@ class ResearchDashboard:
     async def get_threat_analytics(self, days: int = 30) -> Dict:
         """Get threat detection analytics"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             # Get threat counts by type
             result = await conn.execute("""
@@ -87,7 +87,7 @@ class ResearchDashboard:
     async def get_user_behavior_analysis(self, days: int = 30) -> Dict:
         """Get user behavior patterns"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             # Get unique users and their activity patterns
             result = await conn.execute("""
@@ -133,7 +133,7 @@ class ResearchDashboard:
     async def get_device_analytics(self, days: int = 30) -> Dict:
         """Get device-related analytics"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             # Get device statistics
             result = await conn.execute("""
@@ -178,7 +178,7 @@ class ResearchDashboard:
     async def get_geolocation_heatmap(self, days: int = 30) -> Dict:
         """Get geolocation heatmap data"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             # Get IP-based location distribution (simulated)
             result = await conn.execute("""
@@ -207,7 +207,7 @@ class ResearchDashboard:
     async def get_risk_distribution(self, days: int = 30) -> Dict:
         """Get risk level distribution"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             # Get risk score distribution
             result = await conn.execute("""
@@ -256,7 +256,7 @@ class ResearchDashboard:
         risk_dist = await self.get_risk_distribution(days)
         
         return {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "period_days": days,
             "authentication_trends": auth_trends,
             "threat_analytics": threat_analytics,
@@ -273,6 +273,6 @@ class ResearchDashboard:
         return {
             "report_type": "research_dashboard",
             "export_format": format_type,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "data": summary
         }

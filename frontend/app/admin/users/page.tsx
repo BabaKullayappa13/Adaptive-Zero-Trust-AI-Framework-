@@ -21,6 +21,7 @@ import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
 import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
+import { formatTimestampIST } from '@/lib/date-utils'
 
 interface UserItem {
   id: string
@@ -35,8 +36,6 @@ interface UserItem {
   suspension_reason?: string | null
   is_blocked: boolean
   block_reason?: string | null
-  passkey_enrolled?: boolean
-  face_enrolled?: boolean
   last_login?: string
   created_at: string
 }
@@ -286,24 +285,19 @@ export default function AdminUsersPage() {
                                   <KeyRound className="size-2.5" /> PIN
                                 </span>
                               )}
-                              {u.passkey_enrolled && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 text-[10px]">
-                                  Passkey
-                                </span>
-                              )}
-                              {u.face_enrolled && (
+                              {u.mfa_enabled && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 text-[10px]">
-                                  Face ID
+                                  TOTP MFA
                                 </span>
                               )}
-                              {!u.pin_configured && !u.passkey_enrolled && !u.face_enrolled && (
+                              {!u.pin_configured && !u.mfa_enabled && (
                                 <span className="text-[10px] text-slate-500">None</span>
                               )}
                             </div>
                           </td>
                           <td className="px-5 py-3.5 font-mono text-slate-400">
                             {u.last_login && u.last_login !== 'Never'
-                              ? new Date(u.last_login).toLocaleString()
+                              ? formatTimestampIST(u.last_login)
                               : 'Never'}
                           </td>
                           <td className="px-5 py-3.5 text-right">

@@ -5,7 +5,7 @@ Dynamically calculates multi-factor Trust Score, Risk Score, Confidence Score, a
 
 import os
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 RISK_THRESHOLDS = {
     "low_max": int(os.getenv("RISK_LOW_MAX", "29")),
@@ -268,40 +268,40 @@ class TrustRiskEngine:
             policy_decision = "RESTRICT"
             access_level = "denied"
             action_required = "terminate_session"
-            reason = f"Risk score ({risk_score}) reached critical threshold for {resource_sensitivity} resource."
+            reason = f"Critical risk score ({risk_score:.1f}/100) reached threshold for {resource_sensitivity} resource."
         elif risk_score >= (RISK_THRESHOLDS["medium_max"] + 1 - threshold_offset) or trust_score < 50.0:
             policy_decision = "STEP_UP_MFA"
-            access_level = "limited"
-            action_required = "require_secret_pin"
-            reason = f"Elevated risk score ({risk_score}) or low trust score ({trust_score}) requires Secret PIN verification."
+            access_level = "restricted"
+            action_required = "restrict_access"
+            reason = f"Elevated risk score ({risk_score:.1f}/100) or low trust score ({trust_score:.1f}/100) requires session restriction and MFA re-authentication."
         elif risk_score > RISK_THRESHOLDS["low_max"]:
             policy_decision = "ALLOW_WITH_MONITORING"
             access_level = "monitored"
             action_required = "continuous_monitoring"
-            reason = f"Normal risk ({risk_score}) within continuous monitoring bounds."
+            reason = f"Normal risk ({risk_score:.1f}/100) within continuous monitoring bounds."
         else:
             policy_decision = "ALLOW"
             access_level = "full"
             action_required = "continue_monitoring"
-            reason = f"Low risk ({risk_score}) and healthy trust ({trust_score}). Access granted."
+            reason = f"Low risk ({risk_score:.1f}/100) and healthy trust ({trust_score:.1f}/100). Access granted."
 
         # Store policy decision
         try:
             async with self.db_connect() as conn:
                 await conn.execute(
-                    """INSERT INTO policy_decisions
+                    """INSERT INTO policy_decisions 
                        (user_id, session_id, decision, trust_score, risk_score, reason, action_required, created_at)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())""",
                     (user_id, session_id, policy_decision, trust_score, risk_score, reason, action_required)
                 )
                 if policy_decision == "STEP_UP_MFA" and session_id:
                     await conn.execute(
-                        "UPDATE user_sessions SET step_up_required = TRUE WHERE id = %s",
+                        "UPDATE user_sessions SET step_up_required = TRUE, session_status = 'RESTRICTED' WHERE id = %s",
                         (session_id,)
                     )
                 elif policy_decision == "RESTRICT" and session_id:
                     await conn.execute(
-                        "UPDATE user_sessions SET is_active = FALSE WHERE id = %s",
+                        "UPDATE user_sessions SET is_active = FALSE, session_status = 'TERMINATED' WHERE id = %s",
                         (session_id,)
                     )
                 await conn.commit()
@@ -317,7 +317,7 @@ class TrustRiskEngine:
             "risk_score": risk_score,
             "reason": reason,
             "policy_version": POLICY_VERSION,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
     async def get_score_history(

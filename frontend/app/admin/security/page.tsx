@@ -6,6 +6,7 @@ import AdminSessionGuard from '@/components/admin-session-guard'
 import AdminSidebar from '@/components/admin/admin-sidebar'
 import AdminHeader from '@/components/admin/admin-header'
 import { apiClient } from '@/lib/api'
+import { formatTimestampIST } from '@/lib/date-utils'
 
 export default function AdminSecurityPage() {
   const [sessions, setSessions] = useState<any[]>([])
@@ -113,7 +114,7 @@ export default function AdminSecurityPage() {
                             </span>
                           </td>
                           <td className="px-5 py-3.5 font-mono text-slate-400">{s.ip_address || '127.0.0.1'}</td>
-                          <td className="px-5 py-3.5 font-mono text-slate-400">{s.created_at ? new Date(s.created_at).toLocaleString() : 'N/A'}</td>
+                          <td className="px-5 py-3.5 font-mono text-slate-400">{formatTimestampIST(s.created_at)}</td>
                         </tr>
                       ))
                     ) : (

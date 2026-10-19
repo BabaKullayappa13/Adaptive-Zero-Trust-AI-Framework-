@@ -38,8 +38,8 @@ class APIClient {
         try {
           const adminToken = localStorage.getItem('admin_token')
           const userToken = await getNeonToken()
-          const isAdminReq = config.url && config.url.includes('/admin')
-          const token = (isAdminReq && adminToken) ? adminToken : (adminToken || userToken)
+          const isAdminReq = Boolean(config.url && (config.url.includes('/admin') || config.url.startsWith('/api/admin')))
+          const token = isAdminReq ? (adminToken || userToken) : userToken
           if (token) {
             config.headers = config.headers || {}
             config.headers.Authorization = `Bearer ${token}`
@@ -51,10 +51,51 @@ class APIClient {
       return config
     })
 
-    // Response interceptor
+    // Response interceptor with safe 401 token refresh
     this.client.interceptors.response.use(
       (response) => response,
-      (error) => {
+      async (error) => {
+        const originalRequest = error?.config
+        if (
+          error instanceof AxiosError &&
+          error.response?.status === 401 &&
+          originalRequest &&
+          !originalRequest._retry &&
+          typeof window !== 'undefined'
+        ) {
+          const refreshToken = localStorage.getItem('azt_refresh_token')
+          const isAuthEndpoint = originalRequest.url?.includes('/api/auth/login') ||
+                                 originalRequest.url?.includes('/api/auth/refresh') ||
+                                 originalRequest.url?.includes('/api/admin/login')
+          if (refreshToken && !isAuthEndpoint) {
+            originalRequest._retry = true
+            try {
+              const refreshRes = await axios.post(
+                `${API_BASE_URL.replace(/\/$/, '')}/api/auth/refresh`,
+                { refresh_token: refreshToken },
+                { headers: { 'Content-Type': 'application/json' } }
+              )
+              if (refreshRes.data?.access_token) {
+                const newAccess = refreshRes.data.access_token
+                localStorage.setItem('azt_access_token', newAccess)
+                if (refreshRes.data.refresh_token) {
+                  localStorage.setItem('azt_refresh_token', refreshRes.data.refresh_token)
+                }
+                originalRequest.headers = originalRequest.headers || {}
+                originalRequest.headers.Authorization = `Bearer ${newAccess}`
+                return this.client(originalRequest)
+              }
+            } catch {
+              // Refresh failed or revoked: clear stale tokens and stop background polling
+              localStorage.removeItem('azt_access_token')
+              localStorage.removeItem('azt_refresh_token')
+              localStorage.removeItem('azt_user_profile')
+              localStorage.removeItem('azt_session_id')
+              window.dispatchEvent(new CustomEvent('azt:session-expired'))
+            }
+          }
+        }
+
         if (error instanceof AxiosError) {
           error.message = getApiErrorMessage(error)
         }
@@ -522,31 +563,52 @@ class APIClient {
   }
 
   // ============================================================
-  // WebAuthn / Biometric Passkeys (FIDO2)
+  // Session Revocation & Admin Controls
   // ============================================================
 
-  async getWebAuthnRegistrationOptions() {
-    return this.client.post('/api/auth/webauthn/register/options', {})
+  async revokeAdminSession(sessionId: number) {
+    return this.client.post(`/api/admin/sessions/${sessionId}/revoke`, {})
   }
 
-  async verifyWebAuthnRegistration(credential: any, nickname?: string) {
-    return this.client.post('/api/auth/webauthn/register/verify', { credential, nickname })
+  // ============================================================
+  // Hybrid Cloud Gateway Telemetry & Test Evaluation
+  // ============================================================
+
+  async getHybridCloudGatewayTelemetry(timeRange: string = '1d') {
+    return this.client.get(`/api/cloud/gateway/telemetry?time_range=${encodeURIComponent(timeRange)}`)
   }
 
-  async getWebAuthnLoginOptions(email?: string) {
-    return this.client.post('/api/auth/webauthn/login/options', { email: email?.trim() || undefined })
+  async executeGatewayTestEvaluation(payload: {
+    resource_id: string
+    destination_environment: string
+    scenario: string
+    action_type?: string
+  }) {
+    return this.client.post('/api/cloud/gateway/test-evaluate', payload)
   }
 
-  async verifyWebAuthnLogin(credential: any) {
-    return this.client.post('/api/auth/webauthn/login/verify', { credential })
+  // ============================================================
+  // AI Image Intelligence & Model Monitoring
+  // ============================================================
+
+  async classifyImage(formData: FormData) {
+    return this.client.post('/api/admin/ai-monitoring/image-classify', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
   }
 
-  async getWebAuthnCredentials() {
-    return this.client.get('/api/auth/webauthn/credentials')
+  async getImageMonitoringOverview() {
+    return this.client.get('/api/admin/ai-monitoring/image-overview')
   }
 
-  async deleteWebAuthnCredential(credentialId: string) {
-    return this.client.delete(`/api/auth/webauthn/credentials/${encodeURIComponent(credentialId)}`)
+  async getImageMonitoringHistory(limit: number = 50) {
+    return this.client.get(`/api/admin/ai-monitoring/image-history?limit=${limit}`)
+  }
+
+  async getImageMonitoringEvaluation() {
+    return this.client.get('/api/admin/ai-monitoring/image-evaluation')
   }
 }
 

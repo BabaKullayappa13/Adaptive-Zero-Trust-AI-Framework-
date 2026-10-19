@@ -6,10 +6,27 @@ export interface User {
   id: string
   email: string
   name?: string
+  role?: string
   mfa_enabled: boolean
   pin_configured: boolean
   email_verified?: boolean
   created_at: string
+}
+
+export interface LoginEvaluationData {
+  status: 'EVALUATION_IN_PROGRESS' | 'EVALUATION_SUCCESSFUL' | 'NORMAL_ACTIVITY_DETECTED' | 'ANOMALOUS_ACTIVITY_DETECTED' | 'ACCESS_RESTRICTED_BY_POLICY' | 'MODEL_UNAVAILABLE' | 'EVALUATION_FAILED' | string
+  trust_score: number
+  risk_score: number
+  trust_level: string
+  risk_level: string
+  confidence_score: number
+  ai_anomaly_status: string
+  ai_anomaly_score: number
+  model_status: string
+  model_version: string
+  policy_decision: string
+  action_required: string
+  reasons: string[]
 }
 
 export interface LoginResult {
@@ -26,6 +43,8 @@ export interface LoginResult {
   refresh_token?: string
   session_id?: number
   user?: User
+  trust_score?: number
+  evaluation?: LoginEvaluationData
 }
 
 export interface MfaFactorsResponse {
@@ -58,10 +77,9 @@ interface AuthState {
   getSecurePinStatus: (email: string) => Promise<{ exists: boolean; secure_pin_configured: boolean; email_verified: boolean }>
 
   // Multi-Factor Authentication Progression
-  login: (email: string, password: string, secretPin?: string, totpCode?: string) => Promise<LoginResult>
+  login: (email: string, password: string, secretPin?: string, totpCode?: string, telemetry?: Record<string, any>) => Promise<LoginResult>
   verifySecurePin: (email: string, secretPin: string, challengeToken?: string) => Promise<boolean>
-  loginMfaComplete: (email: string, challengeToken?: string, secretPin?: string) => Promise<LoginResult>
-  loginWithPasskey: (email?: string) => Promise<LoginResult>
+  loginMfaComplete: (email: string, challengeToken?: string, secretPin?: string, telemetry?: Record<string, any>) => Promise<LoginResult>
   verifyPinChallenge: (challengeToken: string, secretPin: string) => Promise<void>
 
   // Recovery & Factor Management
@@ -239,7 +257,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return true
   },
 
-  loginMfaComplete: async (email: string, challengeToken?: string, secretPin?: string): Promise<LoginResult> => {
+  loginMfaComplete: async (email: string, challengeToken?: string, secretPin?: string, telemetry?: Record<string, any>): Promise<LoginResult> => {
     set({ isLoading: true, error: null })
     try {
       const cToken = challengeToken || get().challengeToken || (typeof window !== 'undefined' ? sessionStorage.getItem('azt_challenge_token') : null)
@@ -259,7 +277,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           email: email.trim(),
           challenge_token: cToken || undefined,
           secret_pin: secretPin ? secretPin.trim() : undefined,
-          device_info: deviceInfo
+          device_info: deviceInfo,
+          telemetry: telemetry || undefined
         })
       })
 
@@ -296,7 +315,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  login: async (email: string, password: string, secretPin?: string, totpCode?: string): Promise<LoginResult> => {
+  login: async (email: string, password: string, secretPin?: string, totpCode?: string, telemetry?: Record<string, any>): Promise<LoginResult> => {
     set({ isLoading: true, error: null })
     try {
       const deviceInfo = typeof window !== 'undefined' ? {
@@ -316,7 +335,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           password,
           secret_pin: secretPin?.trim() || undefined,
           totp_code: totpCode?.trim() || undefined,
-          device_info: deviceInfo
+          device_info: deviceInfo,
+          telemetry: telemetry || undefined
         })
       })
 
@@ -407,64 +427,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       })
     } catch (err: any) {
       set({ isLoading: false, error: err.message || 'Verification failed' })
-      throw err
-    }
-  },
-
-  loginWithPasskey: async (email?: string) => {
-    set({ isLoading: true, error: null })
-    try {
-      // 1. Fetch authentication assertion challenge from backend
-      const optionsRes = await fetch('/api/auth/webauthn/login/options', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email?.trim() || undefined })
-      })
-      const options = await readApiResponse<any>(optionsRes)
-      if (!optionsRes.ok) {
-        throw new Error(options.detail || options.message || 'Failed to initialize biometric passkey challenge.')
-      }
-
-      // 2. Perform WebAuthn authentication ceremony on client device
-      const { startAuthentication } = await import('@simplewebauthn/browser')
-      const credential = await startAuthentication({ optionsJSON: options })
-
-      // 3. Verify assertion signature with backend (enforces email verification & account active state)
-      const verifyRes = await fetch('/api/auth/webauthn/login/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential })
-      })
-      const data = await readApiResponse<any>(verifyRes)
-      if (!verifyRes.ok) {
-        throw new Error(data.detail || data.message || 'Biometric passkey authentication failed.')
-      }
-
-      const token = data.access_token
-      const user = data.user
-      const sessionId = data.session_id
-
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(TOKEN_KEY, token)
-        if (data.refresh_token) localStorage.setItem(REFRESH_KEY, data.refresh_token)
-        localStorage.setItem(USER_KEY, JSON.stringify(user))
-        if (sessionId) localStorage.setItem(SESSION_KEY, String(sessionId))
-        document.cookie = `access_token=${token}; path=/; max-age=3600; SameSite=Lax`
-      }
-
-      set({
-        user,
-        accessToken: token,
-        sessionId: sessionId || 1,
-        isLoading: false,
-        isInitialized: true,
-        error: null
-      })
-
-      return data
-    } catch (err: any) {
-      const msg = err.message || 'Passkey authentication failed'
-      set({ isLoading: false, error: msg })
       throw err
     }
   },
@@ -566,6 +528,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (typeof window === 'undefined') return
 
     const token = localStorage.getItem(TOKEN_KEY)
+    const refreshToken = localStorage.getItem(REFRESH_KEY)
     const rawUser = localStorage.getItem(USER_KEY)
     const rawSession = localStorage.getItem(SESSION_KEY)
 
@@ -598,25 +561,64 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isInitialized: true
         })
         localStorage.setItem(USER_KEY, JSON.stringify(freshUser))
-      } else {
-        if (parsedUser) {
-          set({
-            user: parsedUser,
-            accessToken: token,
-            sessionId: rawSession ? parseInt(rawSession, 10) : 1,
-            isInitialized: true
+        return
+      }
+
+      // If token expired (401), attempt to rotate using refresh token
+      if (res.status === 401 && refreshToken) {
+        try {
+          const refreshRes = await fetch('/api/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: refreshToken })
           })
-        } else {
-          set({ user: null, accessToken: null, sessionId: null, isInitialized: true })
+          if (refreshRes.ok) {
+            const refreshData = await readApiResponse<{ access_token: string; refresh_token?: string }>(refreshRes)
+            if (refreshData?.access_token) {
+              const newAccess = refreshData.access_token
+              localStorage.setItem(TOKEN_KEY, newAccess)
+              if (refreshData.refresh_token) {
+                localStorage.setItem(REFRESH_KEY, refreshData.refresh_token)
+              }
+              const meRetry = await fetch('/api/auth/me', {
+                headers: { Authorization: `Bearer ${newAccess}` }
+              })
+              if (meRetry.ok) {
+                const refreshedUser = await readApiResponse<User>(meRetry)
+                set({
+                  user: refreshedUser,
+                  accessToken: newAccess,
+                  sessionId: rawSession ? parseInt(rawSession, 10) : 1,
+                  isInitialized: true
+                })
+                localStorage.setItem(USER_KEY, JSON.stringify(refreshedUser))
+                return
+              }
+            }
+          }
+        } catch {
+          // Fall through to clear invalid credentials
         }
       }
+
+      // Token rejected and refresh failed: clear invalid session
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(REFRESH_KEY)
+      localStorage.removeItem(USER_KEY)
+      localStorage.removeItem(SESSION_KEY)
+      set({ user: null, accessToken: null, sessionId: null, isInitialized: true })
     } catch {
-      set({
-        user: parsedUser,
-        accessToken: token,
-        sessionId: rawSession ? parseInt(rawSession, 10) : 1,
-        isInitialized: true
-      })
+      // Offline network error: retain cached profile only if available
+      if (parsedUser) {
+        set({
+          user: parsedUser,
+          accessToken: token,
+          sessionId: rawSession ? parseInt(rawSession, 10) : 1,
+          isInitialized: true
+        })
+      } else {
+        set({ user: null, accessToken: null, sessionId: null, isInitialized: true })
+      }
     }
   }
 }))

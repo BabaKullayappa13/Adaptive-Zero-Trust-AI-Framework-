@@ -2,7 +2,7 @@ import os
 import secrets
 import hashlib
 import hmac
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Union
 import bcrypt
 import jwt
@@ -215,10 +215,11 @@ def create_access_token(
     expires_delta: Optional[timedelta] = None
 ) -> str:
     """Issue a signed JWT access token"""
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     payload = {
         "sub": str(user_id),
@@ -227,7 +228,7 @@ def create_access_token(
         "sid": session_id,
         "type": "access",
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": now,
         "jti": secrets.token_hex(16)
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -238,13 +239,14 @@ def create_refresh_token(
     session_id: Optional[str] = None
 ) -> str:
     """Issue a signed JWT refresh token"""
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user_id),
         "sid": session_id,
         "type": "refresh",
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": now,
         "jti": secrets.token_hex(16)
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -259,7 +261,8 @@ def create_challenge_token(
     session_id: Optional[str] = None
 ) -> str:
     """Issue a short-lived token for multi-factor or step-up challenge verification (valid 5 min)"""
-    expire = datetime.utcnow() + timedelta(minutes=5)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=5)
     payload = {
         "sub": str(user_id),
         "email": email,
@@ -269,7 +272,7 @@ def create_challenge_token(
         "sid": session_id,
         "type": "challenge",
         "exp": expire,
-        "iat": datetime.utcnow()
+        "iat": now
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -349,7 +352,8 @@ async def get_current_user(
 ) -> Dict[str, Any]:
     """
     FastAPI dependency to authenticate requests with a Bearer JWT.
-    Enforces active session status, locked session rejection, and authoritative DB role resolution.
+    Enforces active session status, locked session rejection, authoritative DB role resolution,
+    and blocks deleted, suspended, or blocked accounts (Fail-Closed).
     """
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Authentication credentials required")
@@ -364,53 +368,131 @@ async def get_current_user(
     role = payload.get("role", "operator")
     user_email = payload.get("email", "")
 
-    # Authoritative session state validation & role enforcement from Database
+    # Validate user_id format
+    import uuid as _uuid_mod
     try:
-        from database import db_manager
-        async with db_manager.get_connection() as conn:
-            # 1. Verify user account is active and obtain authoritative role
-            u_res = await conn.execute("SELECT role, is_active, email FROM users WHERE id = %s", (str(user_id),))
-            u_row = await u_res.fetchone()
-            if u_row:
-                db_role, is_user_active, db_email = u_row
-                if not is_user_active:
-                    raise HTTPException(status_code=403, detail="Account is disabled. Contact system administrator.")
-                if db_role:
-                    role = db_role
-                if db_email:
-                    user_email = db_email
+        valid_user_uuid = str(_uuid_mod.UUID(str(user_id)))
+    except (ValueError, AttributeError):
+        if str(user_id) == "admin" and payload.get("role") == "admin":
+            return {
+                "id": "admin",
+                "email": user_email or os.getenv("ADMIN_EMAIL", "admin@gateway.internal"),
+                "role": "admin",
+                "session_id": str(session_id) if session_id else None,
+                "auth_source": "admin_jwt"
+            }
+        raise HTTPException(status_code=401, detail="Invalid user identifier format.")
 
-            # 2. Verify session status if session_id is bound
-            if session_id:
+    # Authoritative account state validation & role enforcement from Database
+    from database import db_manager
+    async with db_manager.get_connection() as conn:
+        # 1. Authoritative check: User MUST exist in database (Fail-Closed against deleted users)
+        u_res = await conn.execute(
+            """SELECT role, is_active, email, is_suspended, suspended_until, 
+                      suspension_reason, is_blocked, block_reason 
+               FROM users WHERE id = %s""",
+            (valid_user_uuid,)
+        )
+        u_row = await u_res.fetchone()
+        if not u_row:
+            raise HTTPException(
+                status_code=401,
+                detail="User account no longer exists or has been deleted."
+            )
+
+        (db_role, is_user_active, db_email, is_suspended, suspended_until,
+         suspension_reason, is_blocked, block_reason) = u_row
+
+        if not is_user_active:
+            raise HTTPException(
+                status_code=403,
+                detail="Account is disabled. Contact system administrator."
+            )
+
+        if is_blocked:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Account has been blocked by administrator. Reason: {block_reason or 'Security policy enforcement'}"
+            )
+
+        if is_suspended:
+            now_utc = datetime.now(timezone.utc)
+            is_still_suspended = True
+            if suspended_until:
                 try:
-                    s_id_int = int(session_id)
-                    s_res = await conn.execute(
-                        "SELECT is_active, session_status, locked_at FROM user_sessions WHERE id = %s",
-                        (s_id_int,)
+                    if isinstance(suspended_until, str):
+                        s_dt = datetime.fromisoformat(suspended_until.replace("Z", "+00:00"))
+                    else:
+                        s_dt = suspended_until
+                    if s_dt.tzinfo is None:
+                        s_dt = s_dt.replace(tzinfo=timezone.utc)
+                    if s_dt <= now_utc:
+                        is_still_suspended = False
+                        await conn.execute(
+                            "UPDATE users SET is_suspended = FALSE, suspended_until = NULL, suspension_reason = NULL WHERE id = %s",
+                            (valid_user_uuid,)
+                        )
+                        await conn.commit()
+                except Exception:
+                    is_still_suspended = True
+            if is_still_suspended:
+                until_str = f" until {suspended_until}" if suspended_until else ""
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Account is temporarily suspended{until_str}. Reason: {suspension_reason or 'Administrative review'}"
+                )
+
+        if db_role:
+            role = db_role
+        if db_email:
+            user_email = db_email
+
+        # 2. Verify session status if session_id is bound
+        if session_id:
+            try:
+                s_id_int = int(session_id)
+                s_res = await conn.execute(
+                    "SELECT is_active, session_status, locked_at, expires_at FROM user_sessions WHERE id = %s",
+                    (s_id_int,)
+                )
+            except ValueError:
+                s_res = await conn.execute(
+                    "SELECT is_active, session_status, locked_at, expires_at FROM user_sessions WHERE session_token = %s",
+                    (str(session_id),)
+                )
+            s_row = await s_res.fetchone()
+            if s_row:
+                is_active_session, session_status, locked_at, expires_at = s_row
+                if session_status == "LOCKED":
+                    raise HTTPException(
+                        status_code=423,
+                        detail="Session is locked due to inactivity. Re-authentication with Secure PIN required."
                     )
-                    s_row = await s_res.fetchone()
-                    if s_row:
-                        is_active, session_status, locked_at = s_row
-                        if session_status == "LOCKED":
-                            raise HTTPException(
-                                status_code=423,
-                                detail="Session is locked due to inactivity. Re-authentication with Secure PIN required."
-                            )
-                        if not is_active or session_status in ("REVOKED", "EXPIRED"):
+                if not is_active_session or session_status in ("REVOKED", "EXPIRED"):
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Session has been revoked or expired. Please re-authenticate."
+                    )
+                if expires_at:
+                    try:
+                        if isinstance(expires_at, str):
+                            exp_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                        else:
+                            exp_dt = expires_at
+                        if exp_dt.tzinfo is None:
+                            exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                        if exp_dt <= datetime.now(timezone.utc):
                             raise HTTPException(
                                 status_code=401,
-                                detail="Session has been revoked or expired. Please re-authenticate."
+                                detail="Session has expired. Please re-authenticate."
                             )
-                except ValueError:
-                    pass
-    except HTTPException:
-        raise
-    except Exception as e:
-        # If DB check encounters non-critical error, proceed with validated token payload
-        pass
+                    except HTTPException:
+                        raise
+                    except Exception:
+                        pass
     
     return {
-        "id": str(user_id),
+        "id": valid_user_uuid,
         "email": user_email,
         "role": role,
         "session_id": str(session_id) if session_id else None,
@@ -440,45 +522,48 @@ async def get_current_admin_user(
 ) -> Dict[str, Any]:
     """
     FastAPI dependency to authenticate and verify administrative privileges:
-    1. Authoritative JWT bearer check: queries database to confirm user has role == 'admin'
+    1. Authoritative JWT bearer check: queries database to confirm user has role == 'admin' and active
     2. Administrative access key header: constant-time comparison against ADMIN_ACCESS_KEY
     3. Signed Next.js admin session cookie
     """
     admin_access_key = (os.getenv("ADMIN_ACCESS_KEY") or "").strip()
     session_secret = os.getenv("ADMIN_SESSION_SECRET") or os.getenv("SECRET_KEY") or admin_access_key
 
-    # 1. Bearer token with database role verification
+    # 1. Bearer token with authoritative database role verification
     if credentials and credentials.credentials:
         try:
             payload = decode_token(credentials.credentials, expected_type="access")
             user_id = payload.get("sub") or payload.get("id")
             user_email = payload.get("email", "")
 
-            # Confirm admin role in database
             is_admin = False
-            if user_id:
+            # Check if this is the authenticated system admin token issued by admin_login
+            if str(user_id) == "admin" and payload.get("role") == "admin":
+                is_admin = True
+            elif user_id:
                 try:
+                    import uuid as _uuid_mod
+                    valid_uid = str(_uuid_mod.UUID(str(user_id)))
                     from database import db_manager
                     async with db_manager.get_connection() as conn:
                         res = await conn.execute(
-                            "SELECT role, email, is_active FROM users WHERE id = %s",
-                            (str(user_id),)
+                            """SELECT role, email, is_active, is_blocked, is_suspended 
+                               FROM users WHERE id = %s""",
+                            (valid_uid,)
                         )
                         row = await res.fetchone()
-                        if row and row[0] == "admin" and row[2]:
-                            is_admin = True
-                            user_email = row[1] or user_email
+                        if row:
+                            u_role, db_email, u_active, u_blocked, u_suspended = row
+                            if u_role == "admin" and u_active and not u_blocked and not u_suspended:
+                                is_admin = True
+                                user_email = db_email or user_email
                 except Exception:
                     pass
 
-            # Fallback if DB check unreachable but JWT claim is signed with secret
-            if not is_admin and payload.get("role") == "admin":
-                is_admin = True
-
             if is_admin:
                 return {
-                    "id": str(user_id or "admin"),
-                    "email": user_email,
+                    "id": str(user_id),
+                    "email": user_email or os.getenv("ADMIN_EMAIL", "admin@gateway.internal"),
                     "role": "admin",
                     "auth_source": "admin_jwt"
                 }
@@ -505,7 +590,8 @@ async def get_current_admin_user(
             issued_at_str, provided_sig = parts
             try:
                 ts = int(issued_at_str)
-                if abs(datetime.utcnow().timestamp() - ts) < 8 * 3600:
+                now_ts = datetime.now(timezone.utc).timestamp()
+                if abs(now_ts - ts) < 8 * 3600:
                     computed_sig = hmac.new(
                         session_secret.encode("utf-8"),
                         issued_at_str.encode("utf-8"),

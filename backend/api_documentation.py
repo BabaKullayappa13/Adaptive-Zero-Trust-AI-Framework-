@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 
 class APIDocumentationService:
@@ -395,5 +395,5 @@ class APIDocumentationService:
             "authentication": "Bearer Token (JWT)",
             "rate_limiting": "10 requests per minute per user",
             "response_format": "JSON",
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.now(timezone.utc).isoformat()
         }

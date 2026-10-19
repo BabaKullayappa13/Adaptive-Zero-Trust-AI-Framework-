@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 import statistics
 import psycopg
@@ -54,7 +54,7 @@ class ResponseTimeAnalysis:
                                       hours: int = 24) -> Dict:
         """Get statistics for an operation type"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
             
             result = await conn.execute("""
                 SELECT duration_ms
@@ -112,7 +112,7 @@ class ResponseTimeAnalysis:
                                    days: int = 7) -> List[Dict]:
         """Get hourly aggregated metrics"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             if operation_type:
                 result = await conn.execute("""
@@ -157,7 +157,7 @@ class ResponseTimeAnalysis:
                                   days: int = 30) -> List[Dict]:
         """Get daily aggregated metrics"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             if operation_type:
                 result = await conn.execute("""
@@ -201,7 +201,7 @@ class ResponseTimeAnalysis:
     async def get_weekly_aggregates(self, days: int = 90) -> List[Dict]:
         """Get weekly aggregated metrics"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             result = await conn.execute("""
                 SELECT 
@@ -254,7 +254,7 @@ class ResponseTimeAnalysis:
                                    hours: int = 48) -> List[Dict]:
         """Get performance trend over time"""
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
             
             result = await conn.execute("""
                 SELECT 

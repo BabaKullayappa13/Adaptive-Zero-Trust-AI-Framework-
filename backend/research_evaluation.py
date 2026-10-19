@@ -7,7 +7,7 @@ from the trained model evaluation results (CICIDS2026) and live database audit l
 import json
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class ResearchEvaluationModule:
@@ -50,7 +50,7 @@ class ResearchEvaluationModule:
         latency_ms = best_metrics.get("latency_ms", 0.003)
 
         return {
-            "evaluation_timestamp": eval_data.get("evaluation_timestamp", datetime.utcnow().isoformat()),
+            "evaluation_timestamp": eval_data.get("evaluation_timestamp", datetime.now(timezone.utc).isoformat()),
             "sample_size": total,
             "best_model": eval_data.get("best_model", "Gradient Boosting"),
             "dataset": eval_data.get("dataset", "CICIDS2026 (Canadian Institute for Cybersecurity)"),

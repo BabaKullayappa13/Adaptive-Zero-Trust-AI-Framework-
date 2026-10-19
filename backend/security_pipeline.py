@@ -8,7 +8,7 @@ Policy Audit -> Threat Intelligence -> Dashboard / Monitoring
 
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
 
@@ -41,19 +41,34 @@ class SecurityEventPipeline:
         telemetry = telemetry or {}
         device_info = device_info or {}
         location_info = location_info or {}
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         event_id = f"evt-{uuid.uuid4().hex[:12]}"
 
         # 1. Fetch current user context
+        is_valid_uuid = False
+        try:
+            uuid.UUID(str(user_id))
+            is_valid_uuid = True
+        except (ValueError, AttributeError):
+            is_valid_uuid = False
+
+        user_row = None
         async with self.db_connect() as conn:
-            user_res = await conn.execute(
-                "SELECT id, email, name, role, secure_pin_configured, mfa_enabled FROM users WHERE id = %s",
-                (user_id,)
-            )
-            user_row = await user_res.fetchone()
-            db_user_id = user_row[0] if user_row else None
-            user_email = str(user_row[1]) if user_row else "unknown@zerotrust.ai"
-            user_role = str(user_row[3] or "operator") if user_row else "operator"
+            if is_valid_uuid:
+                user_res = await conn.execute(
+                    "SELECT id, email, name, role, secure_pin_configured, mfa_enabled FROM users WHERE id = %s",
+                    (str(user_id),)
+                )
+                user_row = await user_res.fetchone()
+            elif str(user_id) == "admin":
+                admin_res = await conn.execute(
+                    "SELECT id, email, name, role, secure_pin_configured, mfa_enabled FROM users WHERE role = 'admin' LIMIT 1"
+                )
+                user_row = await admin_res.fetchone()
+
+            db_user_id = user_row[0] if user_row else (str(user_id) if is_valid_uuid else None)
+            user_email = str(user_row[1]) if user_row else ("admin@gateway.internal" if str(user_id) == "admin" else "unknown@zerotrust.ai")
+            user_role = str(user_row[3] or "operator") if user_row else ("admin" if str(user_id) == "admin" else "operator")
 
             # 2. Risk Evaluation Signals
             is_new_device = bool(device_info.get("is_new_device", False))
@@ -121,8 +136,8 @@ class SecurityEventPipeline:
                 recommended_action = "TERMINATE_SESSION_AND_ALERT"
             elif risk_score >= (40.0 if is_private else 60.0) or is_new_device or mfa_status != "VERIFIED":
                 gateway_decision = "CHALLENGE"
-                reason = f"Elevated risk ({risk_score:.1f}/100) or unverified device requires Step-Up Secret PIN."
-                recommended_action = "REQUIRE_STEP_UP_PIN"
+                reason = f"Elevated risk ({risk_score:.1f}/100) or unverified device requires session restriction and MFA re-authentication."
+                recommended_action = "RESTRICT_AND_REQUIRE_REAUTH"
             else:
                 gateway_decision = "ALLOW"
                 reason = f"Normal risk ({risk_score:.1f}/100) and healthy trust ({trust_score:.1f}/100) satisfied Zero-Trust requirements."

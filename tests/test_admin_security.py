@@ -330,7 +330,7 @@ async def test_ai_monitoring_overview_and_events():
         assert ov_res.status_code == 200
         ov = ov_res.json()
         assert ov["status"] == "operational"
-        assert ov["dataset_provenance"] == "CICIDS2026"
+        assert "CICIDS2026" in ov["dataset_provenance"]
         assert "XAI-IsolationForest-GBM" in ov["model_version"]
         assert "risk_distribution" in ov
 

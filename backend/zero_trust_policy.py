@@ -4,7 +4,7 @@ Enforces continuous, fine-grained access policies following 'Never Trust, Always
 """
 
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class ZeroTrustPolicyEngine:
@@ -126,5 +126,5 @@ class ZeroTrustPolicyEngine:
                 "trust_score": trust_score,
                 "risk_score": risk_score,
                 "triggered_rules": triggered_rules,
-                "evaluated_at": datetime.utcnow().isoformat()
+                "evaluated_at": datetime.now(timezone.utc).isoformat()
             }

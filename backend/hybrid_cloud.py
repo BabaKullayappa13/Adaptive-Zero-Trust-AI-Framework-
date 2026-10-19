@@ -4,7 +4,7 @@ Manages multi-cloud topology, private/public cloud separation, health monitoring
 """
 
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class HybridCloudService:
@@ -116,7 +116,7 @@ class HybridCloudService:
                 "availability_percent": 99.95,
                 "throughput_mbps": 850.0,
                 "error_rate": 0.001,
-                "last_health_check": datetime.utcnow().isoformat()
+                "last_health_check": datetime.now(timezone.utc).isoformat()
             }
 
     async def verify_resource_access(
@@ -139,7 +139,7 @@ class HybridCloudService:
             reason = "Critical risk level. Access blocked by Zero Trust Gateway."
         elif risk_score > max_risk or trust_score < min_trust:
             decision = "STEP_UP_REQUIRED"
-            reason = f"Access to {resource_cloud} cloud resource requires Secret PIN step-up verification."
+            reason = f"Access to {resource_cloud} cloud resource requires elevated MFA step-up verification."
         else:
             decision = "GRANTED"
             reason = f"Zero Trust verification passed for {resource_cloud} cloud workload."
@@ -154,7 +154,7 @@ class HybridCloudService:
             "maximum_allowed_risk": max_risk,
             "reason": reason,
             "workflow_trace": f"Private Cloud ID Store -> Zero Trust Gateway (Trust: {trust_score:.1f}, Risk: {risk_score:.1f}) -> {resource_cloud.capitalize()} Cloud Resource [{decision}]",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
     async def simulate_failover(self, cloud_type: str) -> Dict[str, Any]:

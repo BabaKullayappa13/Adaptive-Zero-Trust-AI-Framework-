@@ -7,7 +7,7 @@ using real experimental metrics dynamically loaded from the trained model pipeli
 import json
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class IEEEBaselineComparison:
@@ -138,6 +138,6 @@ class IEEEBaselineComparison:
             "dataset": eval_data.get("dataset", "CICIDS2026"),
             "average_improvement_percent": round(avg_improvement, 1),
             "compliance_status": "FULL_IEEE_COMPLIANCE",
-            "evaluation_date": eval_data.get("evaluation_timestamp", datetime.utcnow().isoformat()),
+            "evaluation_date": eval_data.get("evaluation_timestamp", datetime.now(timezone.utc).isoformat()),
             "metrics_comparison": comparisons
         }

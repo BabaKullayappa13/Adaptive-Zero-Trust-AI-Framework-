@@ -6,7 +6,7 @@ for continuous multi-factor behavioral and network risk scoring.
 
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List, Any
 import numpy as np
@@ -170,7 +170,7 @@ class MLModelTrainer:
             metadata = {
                 "model_path": str(model_path),
                 "scaler_path": str(scaler_path),
-                "trained_at": datetime.utcnow().isoformat(),
+                "trained_at": datetime.now(timezone.utc).isoformat(),
                 "model_type": "IsolationForest",
                 "n_estimators": 120,
                 "contamination": contamination,

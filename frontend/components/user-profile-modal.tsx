@@ -7,6 +7,7 @@ import {
   Fingerprint, Trash2, Plus
 } from 'lucide-react'
 import apiClient, { getApiErrorMessage } from '@/lib/api'
+import { formatTimestampIST } from '@/lib/date-utils'
 
 interface UserProfileModalProps {
   isOpen: boolean
@@ -36,13 +37,6 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
   const [updateMsg, setUpdateMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [inactivityThreshold, setInactivityThreshold] = useState<number>(600)
 
-  // WebAuthn Passkeys State
-  const [passkeys, setPasskeys] = useState<any[]>([])
-  const [loadingPasskeys, setLoadingPasskeys] = useState(false)
-  const [passkeyActionLoading, setPasskeyActionLoading] = useState(false)
-  const [newPasskeyNickname, setNewPasskeyNickname] = useState('')
-  const [passkeyMsg, setPasskeyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
   useEffect(() => {
     if (isOpen) {
       loadProfile()
@@ -51,9 +45,7 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
 
   useEffect(() => {
     if (isOpen) {
-      if (activeTab === 'mfa-settings') {
-        loadPasskeys()
-      } else if (activeTab === 'devices-sessions') {
+      if (activeTab === 'devices-sessions') {
         loadSessionsAndDevices()
       } else if (activeTab === 'activity-history') {
         loadActivityHistory()
@@ -145,60 +137,6 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
       await loadSessionsAndDevices()
     } catch (err) {
       console.error(err)
-    }
-  }
-
-  const loadPasskeys = async () => {
-    setLoadingPasskeys(true)
-    try {
-      const res = await apiClient.getWebAuthnCredentials()
-      setPasskeys(res.data?.credentials || [])
-    } catch (e) {
-      console.error('Failed to load passkeys:', e)
-    } finally {
-      setLoadingPasskeys(false)
-    }
-  }
-
-  const handleRegisterPasskey = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setPasskeyMsg(null)
-    setPasskeyActionLoading(true)
-
-    try {
-      const optRes = await apiClient.getWebAuthnRegistrationOptions()
-      const { startRegistration } = await import('@simplewebauthn/browser')
-      const regResp = await startRegistration({ optionsJSON: optRes.data })
-      await apiClient.verifyWebAuthnRegistration(regResp, newPasskeyNickname.trim() || undefined)
-      setPasskeyMsg({ type: 'success', text: 'Biometric authenticator / Passkey registered successfully.' })
-      setNewPasskeyNickname('')
-      await loadPasskeys()
-      await loadProfile()
-    } catch (err: any) {
-      const msg = err.message || 'Passkey registration failed.'
-      if (msg.includes('NotAllowedError') || msg.includes('cancelled') || msg.includes('timed out')) {
-        setPasskeyMsg({ type: 'error', text: 'Biometric verification was cancelled or timed out.' })
-      } else {
-        setPasskeyMsg({ type: 'error', text: getApiErrorMessage(err, msg) })
-      }
-    } finally {
-      setPasskeyActionLoading(false)
-    }
-  }
-
-  const handleDeletePasskey = async (credentialId: string) => {
-    if (!confirm('Are you sure you want to revoke this biometric passkey?')) return
-    setPasskeyActionLoading(true)
-    setPasskeyMsg(null)
-    try {
-      await apiClient.deleteWebAuthnCredential(credentialId)
-      setPasskeyMsg({ type: 'success', text: 'Passkey credential revoked successfully.' })
-      await loadPasskeys()
-      await loadProfile()
-    } catch (err: any) {
-      setPasskeyMsg({ type: 'error', text: getApiErrorMessage(err, 'Failed to revoke passkey.') })
-    } finally {
-      setPasskeyActionLoading(false)
     }
   }
 
@@ -327,11 +265,11 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
                   </div>
                   <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-1">
                     <span className="text-[10px] uppercase tracking-wider text-slate-500">Last Successful Login</span>
-                    <p className="text-xs text-slate-300">{profileData?.last_successful_login ? new Date(profileData.last_successful_login).toLocaleString() : 'Active session'}</p>
+                    <p className="text-xs text-slate-300">{profileData?.last_successful_login ? formatTimestampIST(profileData.last_successful_login) : 'Active session'}</p>
                   </div>
                   <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-1">
                     <span className="text-[10px] uppercase tracking-wider text-slate-500">Last Failed Login</span>
-                    <p className="text-xs text-slate-300">{profileData?.last_failed_login ? new Date(profileData.last_failed_login).toLocaleString() : 'None recorded'}</p>
+                    <p className="text-xs text-slate-300">{profileData?.last_failed_login ? formatTimestampIST(profileData.last_failed_login) : 'None recorded'}</p>
                   </div>
                 </div>
 
@@ -499,17 +437,6 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
                   <p className="text-xs text-slate-400 mt-1">Configured multi-factor verification mechanisms.</p>
                 </div>
 
-                {passkeyMsg && (
-                  <div className={`rounded-xl border p-3 text-xs flex items-center gap-2 ${
-                    passkeyMsg.type === 'success' 
-                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                      : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
-                  }`}>
-                    {passkeyMsg.type === 'success' ? <CheckCircle className="size-4 shrink-0 text-emerald-400" /> : <AlertTriangle className="size-4 shrink-0 text-rose-400" />}
-                    <span>{passkeyMsg.text}</span>
-                  </div>
-                )}
-
                 <div className="space-y-3">
                   <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/40 p-3.5">
                     <div className="flex items-center gap-3">
@@ -556,105 +483,6 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
                     </span>
                   </div>
                 </div>
-
-                {/* WebAuthn / Passkeys / Biometrics Section */}
-                <div className="pt-2 border-t border-slate-800 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
-                        <Fingerprint className="size-4 text-cyan-400" />
-                        Device Biometrics & Passkeys (FIDO2 / WebAuthn)
-                      </h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Hardware-backed biometric authentication (Windows Hello, Face ID, Touch ID).
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-semibold text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                      Zero-Knowledge FIDO2
-                    </span>
-                  </div>
-
-                  {/* Security Explainer Notice */}
-                  <div className="rounded-xl border border-cyan-500/20 bg-cyan-950/20 p-3 text-[11px] text-cyan-200/90 leading-relaxed">
-                    <strong>Zero Trust Architecture:</strong> Raw facial images and biometric templates are <em>never</em> sent to or stored on the server. Your operating system's secure enclave cryptographically signs a random challenge using public-key cryptography.
-                  </div>
-
-                  {/* Add New Passkey Form */}
-                  <form onSubmit={handleRegisterPasskey} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newPasskeyNickname}
-                      onChange={(e) => setNewPasskeyNickname(e.target.value)}
-                      placeholder="Passkey nickname (e.g. My Laptop Windows Hello)"
-                      className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={passkeyActionLoading}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-cyan-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50"
-                    >
-                      {passkeyActionLoading ? (
-                        <>
-                          <RefreshCw className="size-3.5 animate-spin" />
-                          Registering...
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="size-3.5" />
-                          Register Biometrics
-                        </>
-                      )}
-                    </button>
-                  </form>
-
-                  {/* Passkey list */}
-                  <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      Enrolled Passkeys ({passkeys.length})
-                    </p>
-                    {loadingPasskeys ? (
-                      <div className="flex items-center gap-2 py-3 text-xs text-slate-400">
-                        <RefreshCw className="size-3.5 animate-spin text-cyan-400" />
-                        Loading passkeys...
-                      </div>
-                    ) : passkeys.length === 0 ? (
-                      <div className="rounded-xl border border-slate-800/80 bg-slate-900/30 p-3.5 text-xs text-slate-400 text-center">
-                        No passkeys enrolled yet. Click &quot;Register Biometrics&quot; to enable passwordless device login.
-                      </div>
-                    ) : (
-                      passkeys.map((pk) => (
-                        <div
-                          key={pk.id}
-                          className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-xs"
-                        >
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-2">
-                              <Fingerprint className="size-3.5 text-cyan-400" />
-                              <span className="font-semibold text-slate-200">
-                                {pk.nickname || 'Biometric Passkey'}
-                              </span>
-                              <span className="font-mono text-[10px] text-slate-500">
-                                ({pk.credential_id?.slice(0, 12)}...)
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-slate-400">
-                              Enrolled: {new Date(pk.created_at).toLocaleDateString()}
-                              {pk.last_used_at && ` • Last used: ${new Date(pk.last_used_at).toLocaleDateString()}`}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePasskey(pk.id)}
-                            disabled={passkeyActionLoading}
-                            className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-50"
-                          >
-                            <Trash2 className="size-3" />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
               </div>
             )}
 
@@ -684,7 +512,7 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
                             }`}>{s.session_status}</span>
                           </div>
                           <p className="text-[11px] text-slate-400">IP: {s.ip_address} | Trust: {s.trust_score} | Risk: {s.risk_score}</p>
-                          <p className="text-[10px] text-slate-500">Created: {new Date(s.created_at).toLocaleString()}</p>
+                          <p className="text-[10px] text-slate-500">Created: {formatTimestampIST(s.created_at)}</p>
                         </div>
                         {s.is_active && (
                           <button
@@ -749,7 +577,7 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
                         <div className="flex items-center gap-3 text-[10px] text-slate-400">
                           <span>Risk: {evt.risk_level}</span>
                           <span>Trust: {evt.trust_level}</span>
-                          <span className="ml-auto">{new Date(evt.timestamp).toLocaleString()}</span>
+                          <span className="ml-auto">{formatTimestampIST(evt.timestamp)}</span>
                         </div>
                       </div>
                     ))}
@@ -791,7 +619,7 @@ export default function UserProfileModal({ isOpen, onClose, userEmail, onLogout 
                         <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/60">
                           <span>Policy: {log.policy_version}</span>
                           <span>Environment: {log.gateway_environment?.toUpperCase()}</span>
-                          <span>{new Date(log.timestamp).toLocaleString()}</span>
+                          <span>{formatTimestampIST(log.timestamp)}</span>
                         </div>
                       </div>
                     ))}

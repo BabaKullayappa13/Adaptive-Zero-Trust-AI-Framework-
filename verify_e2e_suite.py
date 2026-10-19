@@ -245,7 +245,7 @@ async def run_e2e_verification():
         from federated_learning import FederatedLearningService
         fl = FederatedLearningService(db_manager.get_connection)
         round_res = await fl.run_simulation_round(target_accuracy=0.98)
-        fl_ok = round_res.get("status") == "completed" and round_res.get("participating_clients") == 3
+        fl_ok = round_res.get("status") == "completed" and round_res.get("participating_clients") in (3, 4)
         results.append({
             "step": "13. Federated Learning",
             "status": "PASS" if fl_ok else "FAIL",

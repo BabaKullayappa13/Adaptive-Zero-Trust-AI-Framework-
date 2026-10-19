@@ -54,6 +54,49 @@ export class ContinuousBehaviorCollector {
     }, 15000)
   }
 
+  public startListening() {
+    if (typeof window === 'undefined') return
+    this.sessionStartTime = Date.now()
+    this.lastActivityTime = Date.now()
+    this.totalMouseDistance = 0
+    this.clickCount = 0
+    this.scrollCount = 0
+    this.keyPressTimes = []
+    this.attachEventListeners()
+  }
+
+  public getTelemetrySnapshot(): BehavioralTelemetry {
+    const now = Date.now()
+    const idleSeconds = Math.max(0, Math.floor((now - this.lastActivityTime) / 1000.0))
+    const elapsedSeconds = Math.max(1, (now - this.sessionStartTime) / 1000.0)
+    const sessionDurationMins = Math.max(0.1, elapsedSeconds / 60.0)
+
+    const mouseSpeed = this.totalMouseDistance > 0 ? (this.totalMouseDistance / elapsedSeconds) : 150.0
+
+    let keystrokeSpeed = 3.2
+    let keystrokeVariance = 0.08
+    if (this.keyPressTimes.length >= 2) {
+      const intervals: number[] = []
+      for (let i = 1; i < this.keyPressTimes.length; i++) {
+        intervals.push((this.keyPressTimes[i] - this.keyPressTimes[i - 1]) / 1000.0)
+      }
+      const meanInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
+      keystrokeSpeed = meanInterval > 0 ? (1.0 / meanInterval) : 3.2
+      keystrokeVariance = intervals.reduce((acc, val) => acc + Math.pow(val - meanInterval, 2), 0) / intervals.length
+    }
+
+    return {
+      keystroke_speed: Math.min(15.0, Number(keystrokeSpeed.toFixed(2))),
+      keystroke_variance: Number(keystrokeVariance.toFixed(4)),
+      mouse_speed: Math.min(2000.0, Number(mouseSpeed.toFixed(1))),
+      mouse_distance: Math.min(5000.0, Number(this.totalMouseDistance.toFixed(1))),
+      click_count: Math.max(1, this.clickCount),
+      scroll_count: this.scrollCount,
+      idle_seconds: idleSeconds,
+      session_duration_minutes: Number(sessionDurationMins.toFixed(1)),
+    }
+  }
+
   public stop() {
     this.isCollecting = false
     if (this.intervalTimer) {
@@ -185,14 +228,21 @@ export class ContinuousBehaviorCollector {
 
       if (data.session_terminated && this.callbacks.onSessionTerminated) {
         this.callbacks.onSessionTerminated({ reason: 'Critical risk exceeded threshold. Session terminated.' })
-      } else if (data.step_up_required && this.callbacks.onStepUpRequired) {
+      } else if ((data.step_up_required || data.policy_decision === 'CHALLENGE' || data.policy_decision === 'STEP_UP_MFA') && this.callbacks.onStepUpRequired) {
         this.callbacks.onStepUpRequired({
-          reason: 'Behavioral anomaly or contextual deviation detected. Verification required.',
+          reason: 'Elevated risk detected. Continuous evaluation enforced session restriction.',
           risk_score: data.risk_score,
         })
       }
-    } catch (err) {
-      console.warn('[ContinuousAuth] Telemetry delivery issue:', err)
+    } catch (err: any) {
+      if (err?.response?.status === 401 || err?.message?.includes('401') || err?.message?.includes('revoked')) {
+        this.stop()
+        if (this.callbacks.onSessionTerminated) {
+          this.callbacks.onSessionTerminated({ reason: 'Session expired or revoked. Please log in again.' })
+        }
+      } else {
+        console.warn('[ContinuousAuth] Telemetry delivery issue:', err)
+      }
     }
   }
 }

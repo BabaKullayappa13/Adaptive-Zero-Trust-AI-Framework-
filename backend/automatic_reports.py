@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 import json
 import psycopg
@@ -20,7 +20,7 @@ class AutomaticReportsService:
             "report_type": report_type,
             "format_type": format_type,
             "sections": sections,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
     
     async def generate_pdf_report(self, report_type: str, data: Dict,
@@ -34,7 +34,7 @@ class AutomaticReportsService:
                 (report_type, report_format, report_path, status, generated_at)
                 VALUES (%s, %s, %s, %s, NOW())
                 RETURNING id, generated_at
-            """, (report_type, 'pdf', f'/reports/{report_type}_{datetime.utcnow().timestamp()}.pdf', 'generated'))
+            """, (report_type, 'pdf', f'/reports/{report_type}_{datetime.now(timezone.utc).timestamp()}.pdf', 'generated'))
             
             row = await result.fetchone()
             
@@ -134,7 +134,7 @@ class AutomaticReportsService:
         """Get generated reports"""
         
         async with await self.db_connect() as conn:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
             
             if report_type:
                 result = await conn.execute("""
@@ -170,7 +170,7 @@ class AutomaticReportsService:
         """Generate daily summary report"""
         
         if not report_date:
-            report_date = datetime.utcnow().strftime("%Y-%m-%d")
+            report_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
         async with await self.db_connect() as conn:
             # Get daily statistics
@@ -211,7 +211,7 @@ class AutomaticReportsService:
                         "mitigation_rate": (threat_stats[1] / threat_stats[0] * 100) if threat_stats[0] > 0 else 0
                     }
                 },
-                "generated_at": datetime.utcnow().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
     
     async def generate_weekly_summary(self, week_start_date: Optional[str] = None) -> Dict:
@@ -219,7 +219,7 @@ class AutomaticReportsService:
         
         if not week_start_date:
             # Get Monday of current week
-            today = datetime.utcnow()
+            today = datetime.now(timezone.utc)
             week_start_date = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
         
         week_start = datetime.strptime(week_start_date, "%Y-%m-%d")
@@ -251,14 +251,14 @@ class AutomaticReportsService:
                     for row in daily_data
                 ],
                 "week_total": sum(row[1] for row in daily_data),
-                "generated_at": datetime.utcnow().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
     
     async def generate_monthly_summary(self, year_month: Optional[str] = None) -> Dict:
         """Generate monthly summary report"""
         
         if not year_month:
-            year_month = datetime.utcnow().strftime("%Y-%m")
+            year_month = datetime.now(timezone.utc).strftime("%Y-%m")
         
         year, month = year_month.split('-')
         month_start = datetime(int(year), int(month), 1)
@@ -304,5 +304,5 @@ class AutomaticReportsService:
                     "total_mitigated": threat_stats[1],
                     "mitigation_rate": (threat_stats[1] / threat_stats[0] * 100) if threat_stats[0] > 0 else 0
                 },
-                "generated_at": datetime.utcnow().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }

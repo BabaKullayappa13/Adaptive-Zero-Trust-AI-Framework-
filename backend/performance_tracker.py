@@ -3,7 +3,7 @@
 import time
 import functools
 from typing import Optional, Callable, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import statistics
 
 
@@ -68,7 +68,7 @@ class PerformanceTracker:
         """Get performance metrics summary."""
         try:
             conn = await self.conn_provider()
-            start_time = datetime.utcnow() - timedelta(hours=hours)
+            start_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
 
             if metric_type:
                 query = """
@@ -120,7 +120,7 @@ class PerformanceTracker:
         """Get authentication statistics."""
         try:
             conn = await self.conn_provider()
-            start_time = datetime.utcnow() - timedelta(hours=hours)
+            start_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
 
             query = """
                 SELECT 
@@ -158,7 +158,7 @@ class PerformanceTracker:
         """Get timeseries data for a metric."""
         try:
             conn = await self.conn_provider()
-            start_time = datetime.utcnow() - timedelta(hours=hours)
+            start_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
 
             query = """
                 SELECT 

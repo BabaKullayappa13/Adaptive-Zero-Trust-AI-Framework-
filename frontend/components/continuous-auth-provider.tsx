@@ -10,7 +10,7 @@ import { useAuthStore } from '@/lib/auth-store'
 import { continuousCollector } from '@/lib/continuous-auth'
 import apiClient, { getApiErrorMessage } from '@/lib/api'
 
-type SessionLifecycleState = 'ACTIVE' | 'INACTIVE' | 'LOCKED' | 'RE_AUTH_REQUIRED'
+type SessionLifecycleState = 'ACTIVE' | 'INACTIVE' | 'LOCKED' | 'RESTRICTED_ACCESS' | 'RE_AUTH_REQUIRED'
 
 interface ContinuousAuthContextType {
   trustScore: number
@@ -59,19 +59,12 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
   const [sessionState, setSessionState] = useState<SessionLifecycleState>('ACTIVE')
   const [idleSeconds, setIdleSeconds] = useState<number>(0)
   const [inactivityThreshold, setInactivityThreshold] = useState<number>(600) // Default 10 min
+  const [restrictedReason, setRestrictedReason] = useState<string | null>(null)
   const lastActivityTimeRef = useRef<number>(Date.now())
   const activityCountRef = useRef<number>(0)
 
-  // Step-Up Modal State
-  const [stepUpOpen, setStepUpOpen] = useState(false)
-  const [stepUpReason, setStepUpReason] = useState('')
-  const [stepUpPin, setStepUpPin] = useState('')
-  const [stepUpLoading, setStepUpLoading] = useState(false)
-  const [stepUpError, setStepUpError] = useState<string | null>(null)
-  const [stepUpSuccess, setStepUpSuccess] = useState(false)
-
   // Session Lock Unlock Modal State
-  const [unlockMethod, setUnlockMethod] = useState<'PIN' | 'PASSWORD'>('PIN')
+  const [unlockMethod, setUnlockMethod] = useState<'PASSWORD' | 'PIN'>('PASSWORD')
   const [unlockPin, setUnlockPin] = useState('')
   const [unlockPassword, setUnlockPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -170,14 +163,26 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
           if (res.data?.locked) {
             setSessionState('LOCKED')
           }
-        } catch {
-          // Non-blocking heartbeat failure
+        } catch (err: any) {
+          if (err?.response?.status === 401 || err?.message?.includes('401') || err?.message?.includes('revoked')) {
+            setSessionState('RE_AUTH_REQUIRED')
+          }
         }
       }
     }, 5000)
 
     return () => clearInterval(checkInterval)
   }, [user, accessToken, sessionId, inactivityThreshold, sessionState])
+
+  // Listen for global session expiry to stop polling
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleExpired = () => {
+      setSessionState('RE_AUTH_REQUIRED')
+    }
+    window.addEventListener('azt:session-expired', handleExpired)
+    return () => window.removeEventListener('azt:session-expired', handleExpired)
+  }, [])
 
   // 3. Continuous Collector Integration
   const handleScoreUpdate = useCallback((data: {
@@ -194,11 +199,9 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
     setRiskLevel(data.risk_level)
   }, [])
 
-  const handleStepUpRequired = useCallback((details: { reason: string; risk_score: number }) => {
-    setStepUpReason(details.reason)
-    setStepUpOpen(true)
-    setStepUpError(null)
-    setStepUpSuccess(false)
+  const handleChallengeRequired = useCallback((details: { reason: string; risk_score: number }) => {
+    setRestrictedReason(details.reason)
+    setSessionState('RESTRICTED_ACCESS')
   }, [])
 
   const handleSessionTerminated = useCallback((details: { reason: string }) => {
@@ -212,7 +215,7 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
       setIsMonitoring(true)
       continuousCollector.start(Number(sessionId), {
         onScoreUpdate: handleScoreUpdate,
-        onStepUpRequired: handleStepUpRequired,
+        onStepUpRequired: handleChallengeRequired,
         onSessionTerminated: handleSessionTerminated,
       })
 
@@ -221,7 +224,7 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
         setIsMonitoring(false)
       }
     }
-  }, [user, accessToken, sessionId, handleScoreUpdate, handleStepUpRequired, handleSessionTerminated])
+  }, [user, accessToken, sessionId, handleScoreUpdate, handleChallengeRequired, handleSessionTerminated])
 
   const triggerManualCheck = async () => {
     if (isMonitoring) {
@@ -235,39 +238,6 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
       await apiClient.lockSession(sessionId ? Number(sessionId) : undefined, 'Manual User Lock')
     } catch {
       // Local lock enforced
-    }
-  }
-
-  // Handle Step-Up Verification
-  const handleStepUpSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!stepUpPin || stepUpPin.length < 4) {
-      setStepUpError('Please enter your 4 to 8 digit Secret PIN.')
-      return
-    }
-
-    setStepUpLoading(true)
-    setStepUpError(null)
-
-    try {
-      const activeSessionId = sessionId ? Number(sessionId) : 1
-      const res = await apiClient.submitStepUpVerification(activeSessionId, stepUpPin)
-      if (res.data.success) {
-        setStepUpSuccess(true)
-        setTrustScore(res.data.trust_score || 85.0)
-        setRiskScore(res.data.risk_score || 15.0)
-        setTrustLevel('TRUSTED')
-        setRiskLevel('LOW')
-        setTimeout(() => {
-          setStepUpOpen(false)
-          setStepUpPin('')
-          setStepUpSuccess(false)
-        }, 1200)
-      }
-    } catch (err: any) {
-      setStepUpError(getApiErrorMessage(err, 'Incorrect Secret PIN. Please try again.'))
-    } finally {
-      setStepUpLoading(false)
     }
   }
 
@@ -482,82 +452,35 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
       )}
 
       {/* ============================================================== */}
-      {/* INTERACTIVE STEP-UP CHALLENGE MODAL                            */}
+      {/* ZERO TRUST NON-BYPASSABLE RESTRICTED ACCESS NOTIFICATION       */}
       {/* ============================================================== */}
-      {stepUpOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-md">
-          <div className="w-full max-w-md rounded-2xl border border-amber-400/40 bg-slate-900 p-6 shadow-2xl shadow-amber-500/10">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-amber-400/10 text-amber-300 border border-amber-400/20">
-                <ShieldAlert className="size-6 animate-pulse" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-white">Step-Up Verification Required</h3>
-                <p className="text-xs text-amber-200/80">Adaptive Zero Trust Continuous Challenge</p>
-              </div>
+      {sessionState === 'RESTRICTED_ACCESS' && (
+        <div className="fixed top-0 left-0 right-0 z-[90] flex flex-col sm:flex-row items-center justify-between border-b border-amber-500/40 bg-slate-950/95 px-6 py-3 shadow-lg shadow-amber-950/40 backdrop-blur-md gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30">
+              <ShieldAlert className="size-5 animate-pulse" />
             </div>
-
-            <p className="mb-5 text-sm leading-6 text-slate-300">
-              {stepUpReason || 'A behavioral deviation or contextual risk signal was detected in your active session. Confirm your identity with your Secret PIN to maintain access.'}
-            </p>
-
-            {stepUpSuccess ? (
-              <div className="flex items-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-emerald-300">
-                <CheckCircle2 className="size-5" />
-                <span className="text-sm font-medium">Identity verified. Full trust restored.</span>
-              </div>
-            ) : (
-              <form onSubmit={handleStepUpSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-                    Enter Secret PIN
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={8}
-                      value={stepUpPin}
-                      onChange={(e) => setStepUpPin(e.target.value.replace(/\D/g, ''))}
-                      placeholder="••••••"
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-center text-xl font-mono tracking-[0.3em] text-amber-300 placeholder:text-slate-600 focus:border-amber-400 focus:outline-none"
-                      autoFocus
-                      disabled={stepUpLoading}
-                      required
-                    />
-                    <KeyRound className="absolute left-3 top-3 size-5 text-slate-500" />
-                  </div>
-                </div>
-
-                {stepUpError && (
-                  <div className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-xs text-rose-200">
-                    {stepUpError}
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    type="submit"
-                    disabled={stepUpLoading || !stepUpPin}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-400 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-300 transition-colors disabled:opacity-50"
-                  >
-                    {stepUpLoading ? 'Verifying PIN...' : 'Verify Secret PIN'}
-                    <ArrowRight className="size-4" />
-                  </button>
-                </div>
-              </form>
-            )}
-
-            <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-[11px] text-slate-500">
-              <span className="flex items-center gap-1.5">
-                <Lock className="size-3 text-cyan-400" />
-                Bcrypt Hashed Verification
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Activity className="size-3 text-emerald-400" />
-                Live Telemetry Active
-              </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+                Zero Trust Continuous Evaluation: Restricted Access Enforced
+              </p>
+              <p className="text-xs text-slate-300">
+                {restrictedReason || 'Elevated risk detected. Session restricted to read-only posture. High-privilege operations are locked.'}
+              </p>
             </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                void logout()
+                router.push('/auth/login?reauth=1')
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 transition shadow-sm"
+            >
+              <Lock className="size-3.5" />
+              Re-authenticate (Primary / MFA)
+            </button>
           </div>
         </div>
       )}

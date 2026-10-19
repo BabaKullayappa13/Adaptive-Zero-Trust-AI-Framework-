@@ -3,7 +3,7 @@ Explainable AI (XAI) Service for Adaptive Zero Trust AI Framework
 Generates real feature attributions, SHAP-aligned contribution breakdowns, and dual-layer explanations.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 import numpy as np
 
@@ -154,19 +154,20 @@ class ExplainableAIService:
             "feature_attribution": feature_contributions,
             "model_architecture": "Gradient Boosting (CICIDS2026) + Behavioral Isolation Forest",
             "feature_selection": "Recursive Feature Elimination (RFE, 15 features) + PCA (10 components)",
-            "shap_kernel": "TreeSHAP Attribution (Lundberg et al.)",
-            "evaluated_at": datetime.utcnow().isoformat(),
+            "shap_kernel": "Heuristic Feature Attribution (SHAP-Aligned Normalized Delta Breakdown)",
+            "methodology": "Heuristic Feature Attribution (SHAP-Aligned Normalized Delta Breakdown)",
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
             "contributing_features_count": len(feature_contributions),
             "dominant_risk_factor": top_factors[0]["feature"] if top_factors else "none"
         }
 
         return {
-            "decision_id": f"xai-{int(datetime.utcnow().timestamp())}",
+            "decision_id": f"xai-{int(datetime.now(timezone.utc).timestamp())}",
             "user_id": user_id,
             "risk_score": risk_score,
             "trust_score": trust_score,
             "decision": decision,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "user_explanation": {
                 "summary": user_summary,
                 "reasons": user_reasons,

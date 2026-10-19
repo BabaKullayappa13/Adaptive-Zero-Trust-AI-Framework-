@@ -2,7 +2,7 @@
 
 import secrets
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 class EmailVerificationService:
@@ -16,14 +16,15 @@ class EmailVerificationService:
         try:
             token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(token.encode()).hexdigest()
-            expires_at = datetime.utcnow() + timedelta(hours=24)
+            now_utc = datetime.now(timezone.utc)
+            expires_at = now_utc + timedelta(hours=24)
             
             async with await self.db_connect() as conn:
                 await conn.execute(
                     """INSERT INTO email_verification_tokens 
                        (user_id, email, token_hash, expires_at, created_at)
                        VALUES (%s, %s, %s, %s, %s)""",
-                    (user_id, email, token_hash, expires_at, datetime.utcnow())
+                    (user_id, email, token_hash, expires_at, now_utc)
                 )
                 await conn.commit()
             
