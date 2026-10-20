@@ -24,12 +24,11 @@ import AdminLiveMetrics from '@/components/admin-live-metrics'
 
 const modules = [
   { href: '/admin/security', label: 'Live Threat Feed', description: 'Monitor threat indicators and real-time security events.', icon: ShieldAlert, tone: 'text-rose-400' },
-  { href: '/admin/phase4', label: 'Threat Emulation', description: 'Simulate adversarial attack vectors against the live Adaptive Zero Trust AI engine to evaluate real-time policy enforcements.', icon: Flame, tone: 'text-amber-400' },
+  { href: '/admin/phase4', label: 'Threat Simulation', description: 'Simulate adversarial attack vectors against the live Adaptive Zero Trust AI engine to evaluate real-time policy enforcements.', icon: Flame, tone: 'text-amber-400' },
   { href: '/admin/policies', label: 'Security Policies', description: 'Configure adaptive risk and trust thresholds with dynamic enforcement.', icon: Settings2, tone: 'text-cyan-400' },
   { href: '/admin/users', label: 'Users & Identities', description: 'Manage user lifecycle, suspend/block states, and MFA enrollments.', icon: Users, tone: 'text-blue-400' },
   { href: '/admin/sessions', label: 'Active Sessions', description: 'Track continuous session telemetry and trigger step-up challenges.', icon: Radio, tone: 'text-emerald-400' },
   { href: '/admin/performance', label: 'Cloud Gateways', description: 'Inspect hybrid-cloud routing latency, API health, and gateway metrics.', icon: Gauge, tone: 'text-indigo-400' },
-  { href: '/admin/ai-monitoring', label: 'AI Monitoring Overview', description: 'Inspect XAI anomaly pipelines, CICIDS2026 model health, and SHAP attribution.', icon: BrainCircuit, tone: 'text-violet-400' },
   { href: '/admin/audit', label: 'Audit Activity', description: 'Cryptographically verifiable administrative event trail and logs.', icon: ClipboardList, tone: 'text-amber-300' },
   { href: '/admin/reports', label: 'Reports / Statement Download', description: 'Export statement of user activity in 1 Hour, 1 Day, or 1 Month intervals (CSV/JSON).', icon: FileDown, tone: 'text-teal-400' },
 ]
@@ -120,7 +119,7 @@ export default function AdminPage() {
                 </div>
                 <span className="inline-flex items-center gap-2 text-xs text-slate-500">
                   <Activity className="size-4 text-cyan-300" />
-                  9 Active Surfaces
+                  8 Active Surfaces
                 </span>
               </div>
 

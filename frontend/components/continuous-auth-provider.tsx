@@ -204,6 +204,11 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
     setSessionState('RESTRICTED_ACCESS')
   }, [])
 
+  const handleClearRestriction = useCallback(() => {
+    setRestrictedReason(null)
+    setSessionState(prev => (prev === 'RESTRICTED_ACCESS' ? 'ACTIVE' : prev))
+  }, [])
+
   const handleSessionTerminated = useCallback((details: { reason: string }) => {
     alert(`Zero Trust Policy Decision: ${details.reason}`)
     void logout()
@@ -216,6 +221,7 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
       continuousCollector.start(Number(sessionId), {
         onScoreUpdate: handleScoreUpdate,
         onStepUpRequired: handleChallengeRequired,
+        onClearRestriction: handleClearRestriction,
         onSessionTerminated: handleSessionTerminated,
       })
 
@@ -224,7 +230,7 @@ export default function ContinuousAuthProvider({ children }: { children: React.R
         setIsMonitoring(false)
       }
     }
-  }, [user, accessToken, sessionId, handleScoreUpdate, handleChallengeRequired, handleSessionTerminated])
+  }, [user, accessToken, sessionId, handleScoreUpdate, handleChallengeRequired, handleClearRestriction, handleSessionTerminated])
 
   const triggerManualCheck = async () => {
     if (isMonitoring) {

@@ -98,6 +98,21 @@ class FederatedLearningService:
     async def run_simulation_round(self, target_accuracy: float = 0.98) -> Dict[str, Any]:
         """Execute a complete FedAvg round training local client models and averaging parameters"""
         async with self.db_connect() as conn:
+            # Check if there is already an in_progress round created recently to prevent duplicate submission
+            active_chk = await conn.execute(
+                "SELECT id, round_number FROM federated_rounds WHERE status = 'in_progress' AND created_at >= NOW() - INTERVAL '30 seconds' LIMIT 1"
+            )
+            act_row = await active_chk.fetchone()
+            if act_row:
+                return {
+                    "simulation_label": self.FRAMEWORK_LABEL,
+                    "framework_mode": "simulation_prototype",
+                    "round_id": int(act_row[0]),
+                    "round_number": int(act_row[1]),
+                    "status": "in_progress",
+                    "message": "A federated round is actively executing. Refresh to view completed metrics."
+                }
+
             # 1. Determine next round number
             res = await conn.execute("SELECT MAX(round_number) FROM federated_rounds")
             row = await res.fetchone()

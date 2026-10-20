@@ -572,8 +572,8 @@ async def get_current_admin_user(
         except Exception:
             pass
 
-    # 2. X-Admin-Access-Key header (Constant-time comparison)
-    header_key = request.headers.get("x-admin-access-key", "").strip()
+    # 2. X-Admin-Access-Key / X-Admin-Key header (Constant-time comparison)
+    header_key = (request.headers.get("x-admin-access-key") or request.headers.get("x-admin-key") or "").strip()
     if header_key and admin_access_key and secrets.compare_digest(header_key, admin_access_key):
         return {
             "id": "admin",

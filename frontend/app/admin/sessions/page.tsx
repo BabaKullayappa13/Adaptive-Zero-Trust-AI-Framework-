@@ -7,7 +7,6 @@ import {
   ShieldCheck,
   ShieldAlert,
   AlertTriangle,
-  UserX,
   Clock,
   Laptop
 } from 'lucide-react'
@@ -20,7 +19,6 @@ import { formatTimestampIST } from '@/lib/date-utils'
 export default function AdminSessionsPage() {
   const [sessions, setSessions] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const fetchSessions = useCallback(async () => {
     setLoading(true)
@@ -38,18 +36,6 @@ export default function AdminSessionsPage() {
     void fetchSessions()
   }, [fetchSessions])
 
-  const handleRevoke = async (userId: string, email: string) => {
-    if (!confirm(`Are you sure you want to terminate all active sessions for ${email}?`)) return
-    try {
-      await apiClient.revokeAdminUserSessions(userId)
-      setActionMsg({ type: 'success', text: `Terminated active sessions for ${email}.` })
-      void fetchSessions()
-    } catch (err: any) {
-      setActionMsg({ type: 'error', text: 'Failed to revoke sessions.' })
-    }
-    setTimeout(() => setActionMsg(null), 4000)
-  }
-
   return (
     <>
       <AdminSessionGuard />
@@ -60,7 +46,7 @@ export default function AdminSessionsPage() {
             <AdminHeader
               title="Active Zero-Trust Sessions"
               eyebrow="Continuous Authentication Monitoring"
-              description="Live session telemetry, continuous risk evaluation, step-up MFA indicators, and administrative termination."
+              description="Live session telemetry, continuous risk evaluation, and step-up MFA indicators across active client devices."
               icon={Radio}
             >
               <button
@@ -72,18 +58,6 @@ export default function AdminSessionsPage() {
                 Refresh Sessions
               </button>
             </AdminHeader>
-
-            {actionMsg && (
-              <div
-                className={`p-4 rounded-xl text-xs flex items-center gap-2 border ${
-                  actionMsg.type === 'success'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-                }`}
-              >
-                {actionMsg.text}
-              </div>
-            )}
 
             <section className="soc-panel overflow-hidden">
               <div className="p-5 border-b border-white/10 flex items-center justify-between">
@@ -106,7 +80,6 @@ export default function AdminSessionsPage() {
                       <th className="px-5 py-3.5 font-semibold">Status</th>
                       <th className="px-5 py-3.5 font-semibold">IP Address</th>
                       <th className="px-5 py-3.5 font-semibold">Started At</th>
-                      <th className="px-5 py-3.5 font-semibold text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[.06]">
@@ -158,21 +131,11 @@ export default function AdminSessionsPage() {
                           <td className="px-5 py-3.5 font-mono text-slate-500">
                             {formatTimestampIST(s.created_at)}
                           </td>
-                          <td className="px-5 py-3.5 text-right">
-                            {s.is_active && (
-                              <button
-                                onClick={() => void handleRevoke(s.user_id, s.email)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-rose-500/30 text-rose-300 hover:bg-rose-500/10 text-xs transition"
-                              >
-                                <UserX className="size-3" /> Revoke
-                              </button>
-                            )}
-                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={8} className="px-5 py-8 text-center text-slate-500">
+                        <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
                           {loading ? 'Loading active sessions...' : 'No active sessions detected.'}
                         </td>
                       </tr>

@@ -318,20 +318,28 @@ class ContinuousAuthenticationOrchestrator:
         travel_check = await self.location.detect_impossible_travel(user_id, location_info)
 
         # 3. AI / ML Anomaly Detection (Isolation Forest)
+        # Check if actual keystroke / mouse events were measured in this interval
+        has_keystroke_events = ("keystroke_speed" in telemetry and float(telemetry["keystroke_speed"]) > 0.0)
+        has_mouse_events = ("mouse_speed" in telemetry and float(telemetry["mouse_speed"]) > 0.0)
+
+        ks = float(telemetry["keystroke_speed"]) if has_keystroke_events else 3.5
+        kv = float(telemetry.get("keystroke_variance", 0.05)) if has_keystroke_events else 0.05
+
+        ms = float(telemetry["mouse_speed"]) if has_mouse_events else 450.0
+        md = float(telemetry.get("mouse_distance", 300.0)) if has_mouse_events else 300.0
+
+        clicks = float(telemetry.get("click_count", 5)) if (has_keystroke_events or has_mouse_events) else 5.0
+        scrolls = float(telemetry.get("scroll_count", 2)) if (has_keystroke_events or has_mouse_events) else 2.0
+        idle_secs = float(telemetry.get("idle_seconds", 0))
+        dev_trust = float(device_record.get("trust_score", 50.0))
+        loc_dev = 10.0 if not travel_check.get("impossible_travel") else 95.0
+
         ai_anomaly_score = 0.0
         if self.anomaly_detector is not None:
             try:
                 import numpy as np
                 feature_vector = np.array([
-                    float(telemetry.get("keystroke_speed", 3.5)),
-                    float(telemetry.get("keystroke_variance", 0.1)),
-                    float(telemetry.get("mouse_speed", 450.0)),
-                    float(telemetry.get("mouse_distance", 300.0)),
-                    float(telemetry.get("click_count", 5)),
-                    float(telemetry.get("scroll_count", 3)),
-                    float(telemetry.get("idle_seconds", 0)),
-                    float(device_record.get("trust_score", 50.0)),
-                    10.0 if not travel_check.get("impossible_travel") else 95.0
+                    ks, kv, ms, md, clicks, scrolls, idle_secs, dev_trust, loc_dev
                 ])
                 detector_res = self.anomaly_detector.predict_anomaly(feature_vector)
                 ai_anomaly_score = float(detector_res.get("anomaly_score", 0.0))
@@ -344,6 +352,20 @@ class ContinuousAuthenticationOrchestrator:
             except Exception as e:
                 print(f"[ContinuousAuth] ML prediction error (failing secure): {e}")
                 ai_anomaly_score = 85.0
+
+        # Check existing session compliance from database
+        is_session_authenticated = True
+        try:
+            async with self.db_connect() as conn:
+                sess_chk = await conn.execute(
+                    "SELECT step_up_required, session_status FROM user_sessions WHERE id = %s",
+                    (session_id,)
+                )
+                s_row = await sess_chk.fetchone()
+                if s_row and (s_row[0] is True or s_row[1] == "RESTRICTED"):
+                    is_session_authenticated = False
+        except Exception:
+            is_session_authenticated = True
 
         # 4. Prepare factors for dynamic trust & risk engines
         risk_factors = {
@@ -362,6 +384,13 @@ class ContinuousAuthenticationOrchestrator:
             "recent_failed_attempts": 0
         }
 
+        has_critical_anomaly = bool(
+            travel_check.get("impossible_travel")
+            or ai_anomaly_score >= 60.0
+            or behavior_analysis.get("is_anomalous")
+            or location_info.get("vpn_detected")
+        )
+
         trust_factors = {
             "recent_successful_logins": 2,
             "device_trust_score": device_record.get("trust_score", 50.0),
@@ -370,7 +399,8 @@ class ContinuousAuthenticationOrchestrator:
             "browser_changed": device_info.get("browser_changed", False),
             "location_changed": location_info.get("location_changed", False),
             "ai_anomaly_score": ai_anomaly_score,
-            "pin_verified": False
+            "pin_verified": is_session_authenticated and not has_critical_anomaly,
+            "step_up_completed": is_session_authenticated and not has_critical_anomaly
         }
 
         # 5. Compute scores
@@ -390,7 +420,7 @@ class ContinuousAuthenticationOrchestrator:
 
         confidence_score = self.trust_risk.calculate_confidence_score(trust_score, risk_score)
         session_terminated = policy_res.get("action_required") == "terminate_session" or risk_score >= 80.0
-        step_up_required = (policy_res.get("action_required") in ("require_reauth", "restrict_access", "require_secret_pin") or risk_score >= 50.0) and not session_terminated
+        step_up_required = (policy_res.get("action_required") in ("require_reauth", "restrict_access", "require_secret_pin") or risk_score >= 60.0) and not session_terminated
         session_status = "TERMINATED" if session_terminated else ("RESTRICTED" if step_up_required else "ACTIVE")
 
         # Update session activity timestamp

@@ -10,6 +10,7 @@ import {
 import Navbar from '@/components/navbar'
 import { useAuthStore } from '@/lib/auth-store'
 import { apiClient } from '@/lib/api'
+import { formatTimestampIST } from '@/lib/date-utils'
 
 export default function FederatedLearningPage() {
   const { user, logout } = useAuthStore()
@@ -43,6 +44,7 @@ export default function FederatedLearningPage() {
   }, [fetchData])
 
   const handleRunRound = async () => {
+    if (training) return
     setTraining(true)
     setError(null)
     try {
@@ -278,7 +280,7 @@ export default function FederatedLearningPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3.5 font-mono text-slate-400">
-                        {new Date(r.created_at).toLocaleTimeString()}
+                        {formatTimestampIST(r.created_at)}
                       </td>
                     </tr>
                   ))

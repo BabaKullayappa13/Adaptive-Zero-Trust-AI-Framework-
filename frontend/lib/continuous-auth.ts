@@ -17,6 +17,7 @@ export interface ContinuousAuthCallback {
   onScoreUpdate?: (data: { trust_score: number; risk_score: number; confidence_score: number; trust_level: string; risk_level: string }) => void
   onStepUpRequired?: (details: { reason: string; risk_score: number }) => void
   onSessionTerminated?: (details: { reason: string }) => void
+  onClearRestriction?: () => void
 }
 
 export class ContinuousBehaviorCollector {
@@ -233,6 +234,8 @@ export class ContinuousBehaviorCollector {
           reason: 'Elevated risk detected. Continuous evaluation enforced session restriction.',
           risk_score: data.risk_score,
         })
+      } else if (!data.step_up_required && data.policy_decision === 'ALLOW' && this.callbacks.onClearRestriction) {
+        this.callbacks.onClearRestriction()
       }
     } catch (err: any) {
       if (err?.response?.status === 401 || err?.message?.includes('401') || err?.message?.includes('revoked')) {

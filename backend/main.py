@@ -1932,6 +1932,36 @@ async def get_admin_metrics_summary(
     pol_row = await pol_res.fetchone()
     policy_enforcements = int(pol_row[0] or 0) if pol_row else 0
 
+    # Count active sessions
+    sess_res = await conn.execute("SELECT COUNT(*) FROM user_sessions WHERE is_active = TRUE")
+    sess_row = await sess_res.fetchone()
+    active_sessions = int(sess_row[0] or 0) if sess_row else 0
+
+    # Count registered users & devices
+    u_res = await conn.execute("SELECT COUNT(*) FROM users")
+    u_row = await u_res.fetchone()
+    registered_users = int(u_row[0] or 0) if u_row else 0
+
+    dev_res = await conn.execute("SELECT COUNT(*) FROM user_devices")
+    dev_row = await dev_res.fetchone()
+    registered_devices = int(dev_row[0] or 0) if dev_row else 0
+
+    # Count gateway requests
+    try:
+        gw_res = await conn.execute("SELECT COUNT(*) FROM gateway_requests")
+        gw_row = await gw_res.fetchone()
+        gateway_requests = int(gw_row[0] or 0) if gw_row else 0
+    except Exception:
+        gateway_requests = 0
+
+    # Count federated rounds
+    try:
+        fl_res = await conn.execute("SELECT COUNT(*) FROM federated_rounds")
+        fl_row = await fl_res.fetchone()
+        federated_rounds = int(fl_row[0] or 0) if fl_row else 0
+    except Exception:
+        federated_rounds = 0
+
     # Compute genuine average and max duration from performance metrics
     perf_res = await conn.execute("SELECT AVG(duration_ms), MAX(duration_ms) FROM performance_metrics")
     perf_row = await perf_res.fetchone()
@@ -1949,7 +1979,12 @@ async def get_admin_metrics_summary(
         "p99_latency_ms": p99_latency,
         "total_requests_today": total_events,
         "anomalies_prevented": anomalies_prevented,
-        "zero_trust_policy_enforcements": policy_enforcements
+        "zero_trust_policy_enforcements": policy_enforcements,
+        "active_sessions": active_sessions,
+        "registered_users": registered_users,
+        "registered_devices": registered_devices,
+        "gateway_requests": gateway_requests,
+        "federated_rounds": federated_rounds
     }
 
 
@@ -2748,8 +2783,8 @@ async def get_feature_importance(data: Dict[str, Any]):
 
 @app.post("/api/federated/rounds/simulation/run", tags=["Federated Learning"])
 @app.post("/api/federated/rounds", tags=["Federated Learning"])
-async def trigger_federated_round(admin_user: Dict[str, Any] = Depends(get_current_admin_user)):
-    """Trigger a new simulated federated training round with FedAvg aggregation (Admin Only)"""
+async def trigger_federated_round(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Trigger a new simulated federated training round with FedAvg parameter aggregation"""
     return await federated_service.run_simulation_round()
 
 

@@ -27,12 +27,11 @@ interface NavItem {
 export const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/security', label: 'Live Threat Feed', icon: ShieldAlert },
-  { href: '/admin/phase4', label: 'Threat Emulation', icon: Flame },
+  { href: '/admin/phase4', label: 'Threat Simulation', icon: Flame },
   { href: '/admin/policies', label: 'Security Policies', icon: FileCheck2 },
   { href: '/admin/users', label: 'Users & Identities', icon: Users },
   { href: '/admin/sessions', label: 'Active Sessions', icon: Radio },
   { href: '/admin/performance', label: 'Cloud Gateways', icon: CloudCog },
-  { href: '/admin/ai-monitoring', label: 'AI Monitoring Overview', icon: BrainCircuit, tag: 'Dedicated' },
   { href: '/admin/audit', label: 'Audit', icon: ClipboardList },
   { href: '/admin/reports', label: 'Reports / Settings', icon: FileDown }
 ]

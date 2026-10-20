@@ -127,9 +127,9 @@ export default function AdminSimulationPage() {
         <AdminSidebar />
         <main className="flex-1 px-4 py-6 sm:px-8 lg:px-12 overflow-y-auto">
           <div className="max-w-7xl mx-auto space-y-8">
-            {/* Section 1: Threat Emulation Header and Description */}
+            {/* Section 1: Threat Simulation Header and Description */}
             <AdminHeader
-              title="Threat Emulation"
+              title="Threat Simulation"
               eyebrow="Security Operations Center · Adversarial Testing"
               description="Simulate adversarial attack vectors against the live Adaptive Zero Trust AI engine to evaluate real-time policy enforcements."
               icon={Flame}
@@ -320,7 +320,7 @@ export default function AdminSimulationPage() {
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-cyan-300 transition disabled:opacity-50 shadow-md shadow-cyan-950/40"
                     >
                       <Play className={`size-4 ${runningScenario ? 'animate-spin' : ''}`} />
-                      {runningScenario ? 'Emulating Attack Vector...' : 'Execute Emulation'}
+                      {runningScenario ? 'Simulating Attack Vector...' : 'Execute Simulation'}
                     </button>
                   </div>
 
@@ -429,7 +429,7 @@ export default function AdminSimulationPage() {
                     <div>
                       <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                         <Activity className="size-4 text-cyan-400" />
-                        Emulation Event Timeline &amp; Audit Trail
+                        Simulation Event Timeline &amp; Audit Trail
                       </h3>
                       <p className="text-xs text-slate-400 mt-0.5">Real-time log of simulation results persisted to audit storage</p>
                     </div>
@@ -485,7 +485,7 @@ export default function AdminSimulationPage() {
                     </div>
                   ) : (
                     <div className="py-12 text-center text-xs text-slate-500">
-                      No threat emulation vectors have been executed yet in this session. Select a vector above to begin.
+                      No threat simulation vectors have been executed yet in this session. Select a vector above to begin.
                     </div>
                   )}
                 </section>

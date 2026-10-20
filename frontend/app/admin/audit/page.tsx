@@ -14,7 +14,7 @@ import { formatTimestampIST } from '@/lib/date-utils'
 
 const TIME_RANGES = [
   { id: '1h', label: '1 Hour' },
-  { id: '1d', label: '24 Hours' },
+  { id: '1d', label: '1 Day' },
   { id: '7d', label: '7 Days' },
   { id: '30d', label: '30 Days' },
   { id: 'all', label: 'All Time' },
@@ -149,6 +149,36 @@ export default function AdminAuditPage() {
 
               <div className="text-xs font-mono text-slate-400">
                 Display Timezone: <span className="text-cyan-300 font-semibold">Asia/Kolkata (IST, UTC+05:30)</span>
+              </div>
+            </div>
+
+            {/* Period Statistics Summary */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="soc-panel p-4">
+                <p className="eyebrow text-slate-400">Total Events ({timeRange.toUpperCase()})</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-cyan-200">{filteredLogs.length}</p>
+                <p className="text-[10px] text-slate-500 mt-1">Database recorded</p>
+              </div>
+              <div className="soc-panel p-4">
+                <p className="eyebrow text-emerald-400/90">Access Granted / Normal</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-emerald-300">
+                  {filteredLogs.filter(l => l.status === 'SUCCESS' || l.status === 'GRANTED' || l.status === 'ALLOW').length}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1">Zero-Trust verified</p>
+              </div>
+              <div className="soc-panel p-4">
+                <p className="eyebrow text-amber-400/90">Step-Up / Challenged</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-amber-300">
+                  {filteredLogs.filter(l => l.status === 'CHALLENGE' || l.status === 'STEP_UP_REQUIRED').length}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1">Adaptive policy challenge</p>
+              </div>
+              <div className="soc-panel p-4">
+                <p className="eyebrow text-rose-400/90">High / Critical Risk</p>
+                <p className="mt-1 text-2xl font-bold font-mono text-rose-300">
+                  {filteredLogs.filter(l => l.risk_level === 'CRITICAL' || l.risk_level === 'HIGH').length}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1">Elevated risk posture</p>
               </div>
             </div>
 

@@ -38,8 +38,18 @@ class APIClient {
         try {
           const adminToken = localStorage.getItem('admin_token')
           const userToken = await getNeonToken()
-          const isAdminReq = Boolean(config.url && (config.url.includes('/admin') || config.url.startsWith('/api/admin')))
-          const token = isAdminReq ? (adminToken || userToken) : userToken
+          const currentPath = window.location.pathname || ''
+          const isAdminContext = Boolean(
+            currentPath.startsWith('/admin') ||
+            (config.url && (
+              config.url.includes('/admin') ||
+              config.url.startsWith('/api/admin') ||
+              config.url.startsWith('/api/cloud/gateway') ||
+              config.url.startsWith('/api/simulation') ||
+              config.url.startsWith('/api/federated/rounds')
+            ))
+          )
+          const token = isAdminContext ? (adminToken || userToken) : (userToken || adminToken)
           if (token) {
             config.headers = config.headers || {}
             config.headers.Authorization = `Bearer ${token}`
