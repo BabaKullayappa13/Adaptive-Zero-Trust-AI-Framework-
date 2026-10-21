@@ -25,7 +25,7 @@ class SecurityEventPipeline:
     async def evaluate_pipeline_event(
         self,
         user_id: str,
-        session_id: Optional[int],
+        session_id: Optional[Any],
         action_type: str,
         resource_id: str = "core-service",
         destination_environment: str = "public",
@@ -43,6 +43,14 @@ class SecurityEventPipeline:
         location_info = location_info or {}
         now_iso = datetime.now(timezone.utc).isoformat()
         event_id = f"evt-{uuid.uuid4().hex[:12]}"
+
+        # Sanitize session_id to integer for PostgreSQL integer column compatibility
+        clean_session_id: Optional[int] = None
+        if session_id is not None:
+            try:
+                clean_session_id = int(session_id)
+            except (ValueError, TypeError):
+                clean_session_id = None
 
         # 1. Fetch current user context
         is_valid_uuid = False
@@ -69,6 +77,19 @@ class SecurityEventPipeline:
             db_user_id = user_row[0] if user_row else (str(user_id) if is_valid_uuid else None)
             user_email = str(user_row[1]) if user_row else ("admin@gateway.internal" if str(user_id) == "admin" else "unknown@zerotrust.ai")
             user_role = str(user_row[3] or "operator") if user_row else ("admin" if str(user_id) == "admin" else "operator")
+
+            # If clean_session_id is not known, attempt to query the most recent active session
+            if clean_session_id is None and db_user_id:
+                try:
+                    s_res = await conn.execute(
+                        "SELECT id FROM user_sessions WHERE user_id = %s ORDER BY id DESC LIMIT 1",
+                        (db_user_id,)
+                    )
+                    s_row = await s_res.fetchone()
+                    if s_row and s_row[0] is not None:
+                        clean_session_id = int(s_row[0])
+                except Exception:
+                    clean_session_id = None
 
             # 2. Risk Evaluation Signals
             is_new_device = bool(device_info.get("is_new_device", False))
@@ -102,8 +123,8 @@ class SecurityEventPipeline:
             }
 
             # Calculate scores
-            risk_res = await self.trust_risk.calculate_risk_score(user_id, session_id or 1, None, risk_factors)
-            trust_res = await self.trust_risk.calculate_trust_score(user_id, session_id or 1, None, trust_factors)
+            risk_res = await self.trust_risk.calculate_risk_score(user_id, clean_session_id or 1, None, risk_factors)
+            trust_res = await self.trust_risk.calculate_trust_score(user_id, clean_session_id or 1, None, trust_factors)
 
             risk_score = risk_res["risk_score"]
             risk_level = risk_res["risk_level"]
@@ -134,9 +155,9 @@ class SecurityEventPipeline:
                 gateway_decision = "DENY"
                 reason = f"Critical risk ({risk_score:.1f}/100) or severe security anomaly detected."
                 recommended_action = "TERMINATE_SESSION_AND_ALERT"
-            elif risk_score >= (40.0 if is_private else 60.0) or is_new_device or mfa_status != "VERIFIED":
+            elif risk_score >= (40.0 if is_private else 60.0) or is_new_device or mfa_status != "VERIFIED" or keystroke_anomaly or mouse_anomaly or ai_anomaly_score >= 50.0:
                 gateway_decision = "CHALLENGE"
-                reason = f"Elevated risk ({risk_score:.1f}/100) or unverified device requires session restriction and MFA re-authentication."
+                reason = f"Elevated risk ({risk_score:.1f}/100) or behavioral anomaly requires session restriction and MFA re-authentication."
                 recommended_action = "RESTRICT_AND_REQUIRE_REAUTH"
             else:
                 gateway_decision = "ALLOW"
@@ -174,7 +195,7 @@ class SecurityEventPipeline:
                     risk_score, confidence_score, prediction, explanation, decision,
                     dominant_risk_factor, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                (xai_id, event_id, user_id, session_id, "XAI-IsolationForest-GBM-v2.1",
+                (xai_id, event_id, str(user_id), clean_session_id, "XAI-IsolationForest-GBM-v2.1",
                  xai_features, risk_score, confidence_score,
                  "ANOMALOUS" if risk_score >= 60 else "NORMAL",
                  explanation_payload, gateway_decision, dominant_factor)
@@ -190,7 +211,7 @@ class SecurityEventPipeline:
                     mfa_status, device_trust_score, risk_score, policy_result,
                     gateway_decision, latency_ms, status_code, is_simulation, created_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                (gw_id, user_id, session_id, resource_id, resource_id.replace('-', ' ').title(),
+                (gw_id, str(user_id), clean_session_id, resource_id, resource_id.replace('-', ' ').title(),
                  destination_environment, endpoint_url, True, mfa_status,
                  trust_factors["device_trust_score"], risk_score, gateway_decision,
                  gateway_decision, 24.5 if is_private else 46.2,
@@ -208,7 +229,7 @@ class SecurityEventPipeline:
                     gateway_environment, result, created_at)
                    VALUES (%s, NOW(), %s, %s, %s, 1, 'Default Zero Trust Access Policy',
                            %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
-                (audit_id, user_id, session_id, resource_id, policy_version,
+                (audit_id, str(user_id), clean_session_id, resource_id, policy_version,
                  {"action": action_type, "signals": risk_factors},
                  risk_score, gateway_decision, reason, mfa_status,
                  "TRUSTED" if not is_new_device else "UNRECOGNIZED",
@@ -250,7 +271,7 @@ class SecurityEventPipeline:
                     """INSERT INTO threat_indicators
                        (id, indicator_type, severity, user_id, session_id, source_ip, details, status, detected_at)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, 'ACTIVE', NOW())""",
-                    (threat_id, indicator_type, risk_level, user_id, session_id,
+                    (threat_id, indicator_type, risk_level, str(user_id), clean_session_id,
                      telemetry.get("ip_address", "127.0.0.1"),
                      {"reason": reason, "dominant_factor": dominant_factor, "risk_score": risk_score})
                 )
@@ -260,7 +281,7 @@ class SecurityEventPipeline:
         return {
             "event_id": event_id,
             "user_id": user_id,
-            "session_id": session_id,
+            "session_id": clean_session_id,
             "action_type": action_type,
             "requested_resource": resource_id,
             "destination_environment": destination_environment,

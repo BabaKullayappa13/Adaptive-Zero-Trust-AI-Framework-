@@ -4269,16 +4269,84 @@ async def get_behavioral_monitoring_accuracy():
 
 
 # 11. REAL APPLICATION SIMULATION
+SIMULATION_SCENARIOS = {
+    "NORMAL_LOGIN": {
+        "title": "Baseline Normal Login",
+        "attack_category": "Valid Accounts",
+        "mitre_tag": "T1078 (Valid Accounts)",
+        "severity": "LOW",
+        "expected_decision": "ALLOW",
+        "enforcement_action": "ALLOW_ACCESS_CONTINUE_MONITORING"
+    },
+    "FAILED_CREDENTIALS": {
+        "title": "Credential Stuffing Anomaly",
+        "attack_category": "Credential Access / Brute Force",
+        "mitre_tag": "T1110 (Brute Force)",
+        "severity": "MEDIUM",
+        "expected_decision": "CHALLENGE",
+        "enforcement_action": "REQUIRE_MFA_STEP_UP"
+    },
+    "NEW_DEVICE": {
+        "title": "Unrecognized Device Access",
+        "attack_category": "Initial Access / Device Anomaly",
+        "mitre_tag": "T1078.004 (Cloud Accounts)",
+        "severity": "MEDIUM",
+        "expected_decision": "CHALLENGE",
+        "enforcement_action": "RESTRICT_AND_REQUIRE_REAUTH"
+    },
+    "SUSPICIOUS_BEHAVIOR": {
+        "title": "Botnet & Kinematic Deviation",
+        "attack_category": "Execution / Behavioral Deviation",
+        "mitre_tag": "T1059 (Command Execution)",
+        "severity": "HIGH",
+        "expected_decision": "CHALLENGE",
+        "enforcement_action": "RESTRICT_SESSION_AND_ALERT"
+    },
+    "IMPOSSIBLE_TRAVEL": {
+        "title": "Impossible Velocity Travel",
+        "attack_category": "Defense Evasion / Geolocation Anomaly",
+        "mitre_tag": "T1090 (Proxy Redirection)",
+        "severity": "CRITICAL",
+        "expected_decision": "DENY",
+        "enforcement_action": "TERMINATE_SESSION_AND_ALERT"
+    },
+    "INACTIVITY_LOCK": {
+        "title": "Zero-Trust Session Lock",
+        "attack_category": "Session Management / Idle Timeout",
+        "mitre_tag": "T1204 (User Execution)",
+        "severity": "MEDIUM",
+        "expected_decision": "LOCK",
+        "enforcement_action": "LOCK_SESSION_AND_REQUIRE_REAUTH"
+    }
+}
+
+
 @app.post("/api/simulation/scenario", tags=["Simulation"])
 async def run_simulation_scenario(
     req: SimulationScenarioRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
     conn: DatabaseConnection = Depends(get_db)
 ):
+    # Enforce administrator authorization
+    is_admin = current_user.get("role") == "admin" or str(current_user.get("id")) == "admin"
+    if not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Threat simulation execution requires administrator privileges."
+        )
+
     if req.user_id:
         ensure_owner(req.user_id, current_user)
     uid = req.user_id or current_user["id"]
     scenario = req.scenario.upper().strip()
+
+    if scenario not in SIMULATION_SCENARIOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown simulation scenario '{scenario}'. Supported scenarios: {', '.join(sorted(SIMULATION_SCENARIOS.keys()))}"
+        )
+
+    meta = SIMULATION_SCENARIOS[scenario]
 
     if scenario == "NORMAL_LOGIN":
         telemetry = {"keystroke_speed": 4.1, "mouse_speed": 420.0, "failed_attempts": 0, "idle_seconds": 2}
@@ -4302,10 +4370,18 @@ async def run_simulation_scenario(
         action = "SIMULATED_NEW_DEVICE_ACCESS"
 
     elif scenario == "SUSPICIOUS_BEHAVIOR":
-        telemetry = {"keystroke_speed": 12.5, "mouse_speed": 1400.0, "keystroke_anomaly": True, "mouse_anomaly": True, "ai_anomaly_score": 85.0}
+        telemetry = {
+            "keystroke_speed": 12.5,
+            "mouse_speed": 1400.0,
+            "keystroke_anomaly": True,
+            "mouse_anomaly": True,
+            "keystroke_deviation_percent": 85.0,
+            "mouse_deviation_percent": 90.0,
+            "ai_anomaly_score": 85.0
+        }
         device_info = {"is_new_device": False, "device_trust_score": 60.0}
         loc_info = {"vpn_detected": True}
-        mfa = "VERIFIED"
+        mfa = "PENDING"
         action = "SIMULATED_ANOMALOUS_KINEMATICS"
 
     elif scenario == "IMPOSSIBLE_TRAVEL":
@@ -4316,26 +4392,83 @@ async def run_simulation_scenario(
         action = "SIMULATED_IMPOSSIBLE_TRAVEL"
 
     elif scenario == "INACTIVITY_LOCK":
-        s_row = await (await conn.execute("SELECT id FROM user_sessions WHERE user_id = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1", (uid,))).fetchone()
-        sid = s_row[0] if s_row else 1
-        await conn.execute("UPDATE user_sessions SET session_status = 'LOCKED', locked_at = NOW() WHERE id = %s", (sid,))
+        is_valid_uuid = False
+        try:
+            uuid.UUID(str(uid))
+            is_valid_uuid = True
+        except (ValueError, AttributeError):
+            is_valid_uuid = False
+
+        db_uid = None
+        if is_valid_uuid:
+            db_uid = str(uid)
+        elif str(uid) == "admin":
+            u_res = await conn.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
+            u_row = await u_res.fetchone()
+            db_uid = str(u_row[0]) if u_row else None
+
+        s_row = None
+        if db_uid:
+            try:
+                s_res = await conn.execute(
+                    "SELECT id FROM user_sessions WHERE user_id = %s AND is_active = TRUE ORDER BY id DESC LIMIT 1",
+                    (db_uid,)
+                )
+                s_row = await s_res.fetchone()
+            except Exception:
+                s_row = None
+        sid = s_row[0] if s_row else None
+        if sid:
+            try:
+                await conn.execute("UPDATE user_sessions SET session_status = 'LOCKED', locked_at = NOW() WHERE id = %s", (sid,))
+            except Exception:
+                pass
+
+        audit_id = str(uuid.uuid4())
+        audit_details = {
+            "scenario_id": scenario,
+            "scenario_title": meta["title"],
+            "attack_category": meta["attack_category"],
+            "mitre_tag": meta["mitre_tag"],
+            "severity": meta["severity"],
+            "policy_decision": "LOCK",
+            "enforcement_action": meta["enforcement_action"],
+            "risk_score": 45.0,
+            "trust_score": 50.0,
+            "idle_seconds": 650,
+            "threshold": 600,
+            "reason": "Simulated user inactivity exceeded configured threshold (650s >= 600s). Session locked.",
+            "is_simulation": True
+        }
         await conn.execute(
-            """INSERT INTO audit_logs (id, user_id, action_type, status, risk_level, trust_level, details, is_simulation, created_at)
-               VALUES (%s, %s, 'SIMULATED_INACTIVITY_LOCK', 'SUCCESS', 'MEDIUM', 'NORMAL', %s, TRUE, NOW())""",
-            (str(uuid.uuid4()), uid, json.dumps({"idle_seconds": 650, "threshold": 600, "scenario": "INACTIVITY_LOCK"}))
+            """INSERT INTO audit_logs (id, user_id, action_type, resource_type, resource_id, status, risk_level, trust_level, details, is_simulation, created_at)
+               VALUES (%s, %s, 'SIMULATED_INACTIVITY_LOCK', 'SESSION', %s, 'SUCCESS', 'MEDIUM', 'NORMAL', %s, TRUE, NOW())""",
+            (audit_id, db_uid, str(sid) if sid else "admin-session", audit_details if db_manager.is_postgres else json.dumps(audit_details))
         )
         await conn.commit()
+
+        now_iso = datetime.now(timezone.utc).isoformat()
         return {
-            "scenario": "INACTIVITY_LOCK",
-            "decision": "LOCK",
-            "session_status": "LOCKED",
+            "scenario_id": scenario,
+            "scenario": scenario,
+            "title": meta["title"],
+            "execution_status": "SUCCESS",
+            "attack_category": meta["attack_category"],
+            "mitre_tag": meta["mitre_tag"],
+            "severity": meta["severity"],
             "risk_score": 45.0,
+            "risk_level": "MEDIUM",
+            "trust_score": 50.0,
+            "trust_level": "NORMAL",
+            "policy_decision": "LOCK",
+            "decision": "LOCK",
+            "enforcement_action": meta["enforcement_action"],
             "reason": "Simulated user inactivity exceeded configured threshold (650s >= 600s). Session locked.",
             "is_simulation": True,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "execution_timestamp": now_iso,
+            "timestamp": now_iso,
+            "audit_id": audit_id
         }
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown simulation scenario: {scenario}")
 
     res = await security_pipeline.evaluate_pipeline_event(
         user_id=uid,
@@ -4349,7 +4482,16 @@ async def run_simulation_scenario(
         mfa_status=mfa,
         is_simulation=True
     )
+    res["scenario_id"] = scenario
     res["scenario"] = scenario
+    res["title"] = meta["title"]
+    res["execution_status"] = "SUCCESS"
+    res["attack_category"] = meta["attack_category"]
+    res["mitre_tag"] = meta["mitre_tag"]
+    res["severity"] = meta["severity"]
+    res["policy_decision"] = res.get("decision", res.get("gateway_decision", "ALLOW"))
+    res["enforcement_action"] = meta["enforcement_action"]
+    res["execution_timestamp"] = res.get("timestamp") or datetime.now(timezone.utc).isoformat()
     return res
 
 
